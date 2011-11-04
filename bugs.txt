@@ -1,0 +1,62 @@
+
+state management/nginx machinery
+- all requests to digest-protected pages are funneled through a single mutex accessing an
+  rbtree of recently issued nonce values. the logic for evicting saved nonces from the tree
+  over time is fairly simple, but what is unclear to me is how to schedule these garbage 
+  collection runs.
+
+  the cleanup hook on the request's pool seems like a good candidate since it won't block the
+  request that triggered it. perhaps with an atomic flag in the shm segment preventing traffic 
+  jams of cleanup?
+  
+- a larger unknown (to me) is the performance characteristics of tree maintenance over the 
+  tree sizes (also unknown) likely to be seen in production use. it would be good to have
+  some solid numbers on which to base shm-size and eviction defaults.
+
+- there's a fair amount of painful parsing code devoted to unpacking the key/value fields
+  in the Authorize header. i have to believe i'm just unaware of an nginx built-in of some
+  sort that will do this part for me. however the docs only led me to a string-level
+  representation of the header.
+  
+- there should be a directive letting you specify that only particular users in a realm may
+  log in. how to handle wildcards though; maybe "*" or "any"? "_" or "none"?
+
+
+rfc 2617
+- currently lacks backward compatibility with clients that don't provide `qop' fields in
+  the Authorize header. according to the rfc the server should work without it, but is it
+  worth supporting the less secure version of an already not-bulletproof authentication
+  scheme?
+
+- should the 401 response also offer a basic auth option if that module is also enabled
+  for a given location block? is there a way for one module to read another's config to
+  detect the overlap? or is this a module-loading-order issue (c.f., the way the fancy_index 
+  module inserts itself before the built-in autoindex module in its HTTP_MODULES config var)?
+  
+- the opaque field is not used when generating challenges, nor is it validated when included
+  in an authentication request. is this a significant omission? the spec makes it seem as 
+  though it only exists as a convenience to stash state in, but i could believe some software
+  out there depends upon it...
+
+general (in)security
+- i followed the model of the auth_basic module which pages through the password file's
+  contents on every request. i know from experience that it's impossible for me to write that 
+  sliding-window-through-a-buffer routine without a creating at least a couple off-by-one 
+  errors and non-terminated strings. it would be nice to find them.
+  
+- also as a result of the auth_basic-inspired character-by-character verification of the 
+  auth credentials, the current implementation could be vulnerable to timing attacks (since
+  it returns as soon as it finds a match). the simplest solution to this would seem to be adding
+  a sleep(random()) delaying the response by a few (dozen? hundred?) milliseconds. i presume the 
+  non-blocking way to do this would be to use a timer?
+
+- OOM conditions in the shm segment are not handled at all well at the moment leading to an
+  easy DOS attack. valid nonces are added to the shm and expired seconds or minutes later. 
+  Once the shm is full no new nonces can be remembered and all auth attempts will fail until
+  enough space has been claimed through expiration. It's unclear to me whether it's possible
+  to realloc the shm segment to a larger size after config-time (or if additional segments
+  could be alloc'd to allow for a bank-switching solution). If the amount of memory really is 
+  finite, then that argues for either more aggressive eviction in lomem conditions or for 
+  moving the state storage to the filesystem. Could nginx's file caching machinery be used
+  for managing expiration?
+  
