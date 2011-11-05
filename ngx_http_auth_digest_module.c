@@ -1,16 +1,13 @@
 
 /*
  * copyright (c) samizdat drafting co.
- * Derived from http_auth_basic (c) igor sysoev
+ * derived from http_auth_basic (c) igor sysoev
  */
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 #include <ngx_md5.h>
-
-
-#define NGX_HTTP_AUTH_BUF_SIZE  2048
 
 // the module conf
 typedef struct { 
@@ -52,11 +49,11 @@ static ngx_int_t ngx_http_auth_digest_handler(ngx_http_request_t *r);
 
 // passwd file handling
 static void ngx_http_auth_digest_close(ngx_file_t *file);
-static char *ngx_http_auth_digest_user_file(ngx_conf_t *cf, ngx_command_t *cmd,
-    void *conf);
+static char *ngx_http_auth_digest_user_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+#define NGX_HTTP_AUTH_BUF_SIZE  2048
 
 // digest challenge generation
-static ngx_int_t ngx_http_auth_digest_set_realm(ngx_http_request_t *r,
+static ngx_int_t ngx_http_auth_digest_send_challenge(ngx_http_request_t *r,
     ngx_str_t *realm, ngx_uint_t is_stale);
 
 // digest response validators
@@ -69,7 +66,7 @@ static ngx_int_t ngx_http_auth_digest_passwd_handler(ngx_http_request_t *r,
 static ngx_int_t ngx_http_auth_digest_verify(ngx_http_request_t *r, 
                      ngx_http_auth_digest_cred_t *fields, ngx_str_t *HA1);
 
-// the shm segment that houses the uesd-nonces tree
+// the shm segment that houses the used-nonces tree
 static ngx_uint_t      ngx_http_auth_digest_shm_size;
 static ngx_shm_zone_t *ngx_http_auth_digest_shm_zone;
 static ngx_rbtree_t   *ngx_http_auth_digest_rbtree;
@@ -90,11 +87,12 @@ static int ngx_http_auth_digest_rbtree_cmp(const ngx_rbtree_node_t *v_left,
                 const ngx_rbtree_node_t *v_right);
 static ngx_rbtree_node_t *ngx_http_auth_digest_rbtree_find(ngx_rbtree_key_t key, 
                 ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
-#define  NGX_STALE -2600
 
+// nc-counting
 static ngx_uint_t ngx_bitvector_size(ngx_uint_t nbits);
-static ngx_int_t ngx_bitvector_test(char *bv, ngx_uint_t bit);
-static void ngx_bitvector_toggle(char *bv, ngx_uint_t bit);
+static ngx_uint_t ngx_bitvector_test(char *bv, ngx_uint_t bit);
+static void ngx_bitvector_set(char *bv, ngx_uint_t bit);
+#define NGX_STALE -2600
 
 // module plumbing
 static void *ngx_http_auth_digest_create_loc_conf(ngx_conf_t *cf);
@@ -153,7 +151,7 @@ static ngx_command_t  ngx_http_auth_digest_commands[] = {
 
 static ngx_http_module_t  ngx_http_auth_digest_module_ctx = {
     NULL,                                  /* preconfiguration */
-    ngx_http_auth_digest_init,              /* postconfiguration */
+    ngx_http_auth_digest_init,             /* postconfiguration */
 
     NULL,                                  /* create main configuration */
     NULL,                                  /* init main configuration */
@@ -161,15 +159,15 @@ static ngx_http_module_t  ngx_http_auth_digest_module_ctx = {
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
 
-    ngx_http_auth_digest_create_loc_conf,   /* create location configuration */
-    ngx_http_auth_digest_merge_loc_conf     /* merge location configuration */
+    ngx_http_auth_digest_create_loc_conf,  /* create location configuration */
+    ngx_http_auth_digest_merge_loc_conf    /* merge location configuration */
 };
 
 
 ngx_module_t  ngx_http_auth_digest_module = {
     NGX_MODULE_V1,
-    &ngx_http_auth_digest_module_ctx,       /* module context */
-    ngx_http_auth_digest_commands,          /* module directives */
+    &ngx_http_auth_digest_module_ctx,      /* module context */
+    ngx_http_auth_digest_commands,         /* module directives */
     NGX_HTTP_MODULE,                       /* module type */
     NULL,                                  /* init master */
     NULL,                                  /* init module */
@@ -301,7 +299,7 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
 
     if (rc==NGX_DECLINED || rc==NGX_STALE) {
       // no authorization header or using a stale nonce, send a new challenge
-      return ngx_http_auth_digest_set_realm(r, &alcf->realm, rc==NGX_STALE);
+      return ngx_http_auth_digest_send_challenge(r, &alcf->realm, rc==NGX_STALE);
     }
 
     if (rc == NGX_ERROR) {
@@ -417,7 +415,7 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
     ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                   "user \"%V\" not found (%V)",
                   &auth_fields->username, &user_file);
-    return ngx_http_auth_digest_set_realm(r, &alcf->realm, 0);
+    return ngx_http_auth_digest_send_challenge(r, &alcf->realm, 0);
 }
 
 
@@ -442,6 +440,7 @@ ngx_http_auth_digest_user(ngx_http_request_t *r, ngx_http_auth_digest_cred_t *ct
     missing += ngx_http_auth_digest_decode_auth(r, &encoded, "response", &ctx->response);
     ngx_http_auth_digest_decode_auth(r, &encoded, "opaque", &ctx->opaque); // (optional/ignored)
 
+    // bail out if anything but the opaque field is missing from the request header
     if (missing>0 || ctx->nonce.len!=17) return NGX_DECLINED;
 
     ngx_http_auth_digest_nonce_t nonce;
@@ -472,25 +471,14 @@ ngx_http_auth_digest_user(ngx_http_request_t *r, ngx_http_auth_digest_cred_t *ct
       return NGX_DECLINED;
     }
       
-    ngx_uint_t avail = ngx_bitvector_test(found->nc, nc);
-    
-    // char buf[256];
-    // ngx_memset(&buf, 0x0, 256);
-    // int i;
-    // for (i=0; i<alcf->replays; i++){
-    //   buf[i] = (ngx_bitvector_test(found->nc, i)) ? '-' : 'x';
-    // }
-    // buf[nc] = (avail) ? 'O':'!';
-    // ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "auth nc <%s> exp(%is)",buf, found->expires-ngx_time());
-
-    if (avail){
+    if (ngx_bitvector_test(found->nc, nc)){
       // if this is the first use of this nonce, switch the expiration time from the timeout
       // param to now+expires. using the 0th element of the nc vector to flag this...
       if (ngx_bitvector_test(found->nc, 0)){
-        ngx_bitvector_toggle(found->nc, 0);
+        ngx_bitvector_set(found->nc, 0);
         found->expires = ngx_time() + alcf->expires;
       }
-      ngx_bitvector_toggle(found->nc, nc);
+      ngx_bitvector_set(found->nc, nc);
       // ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "good nc %s",buf);
       return NGX_OK;
     }else{
@@ -674,16 +662,11 @@ ngx_http_auth_digest_verify(ngx_http_request_t *r, ngx_http_auth_digest_cred_t *
   // ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "    request: (%s)",fields->response.data);
 
   return (ngx_strcmp(digest.data, fields->response.data) == 0);
-  // if (ngx_strcmp(digest.data, fields->response.data) == 0) {
-  //   return 1;
-  // }else{
-  //   return 0;
-  // }
 }
 
 
 static ngx_int_t
-ngx_http_auth_digest_set_realm(ngx_http_request_t *r, ngx_str_t *realm, ngx_uint_t is_stale)
+ngx_http_auth_digest_send_challenge(ngx_http_request_t *r, ngx_str_t *realm, ngx_uint_t is_stale)
 {
     ngx_str_t challenge;
     u_char *p;
@@ -996,7 +979,6 @@ static ngx_http_auth_digest_nonce_t ngx_http_auth_digest_next_nonce(ngx_http_req
     
 }
 
-
 // quick & dirty bitvectors for holding the nc usage record
 #define BITMASK(b) (1 << ((b) % CHAR_BIT))
 #define BITSLOT(b) ((b) / CHAR_BIT)
@@ -1005,6 +987,6 @@ static ngx_http_auth_digest_nonce_t ngx_http_auth_digest_next_nonce(ngx_http_req
 #define BITTEST(a, b) ((a)[BITSLOT(b)] & BITMASK(b))
 #define BITNSLOTS(nb) ((nb + CHAR_BIT - 1) / CHAR_BIT)
 static ngx_uint_t ngx_bitvector_size(ngx_uint_t nbits){ return BITNSLOTS(nbits); }
-static ngx_int_t ngx_bitvector_test(char *bv, ngx_uint_t bit){ return BITTEST(bv, bit); }
-static void ngx_bitvector_toggle(char *bv, ngx_uint_t bit){ BITCLEAR(bv, bit); }
+static ngx_uint_t ngx_bitvector_test(char *bv, ngx_uint_t bit){ return BITTEST(bv, bit); }
+static void ngx_bitvector_set(char *bv, ngx_uint_t bit){ BITCLEAR(bv, bit); }
 

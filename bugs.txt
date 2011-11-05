@@ -1,4 +1,3 @@
-
 state management/nginx machinery
 - all requests to digest-protected pages are funneled through a single mutex accessing an
   rbtree of recently issued nonce values. the logic for evicting saved nonces from the tree
@@ -37,6 +36,7 @@ rfc 2617
   in an authentication request. is this a significant omission? the spec makes it seem as 
   though it only exists as a convenience to stash state in, but i could believe some software
   out there depends upon it...
+
 
 general (in)security
 - i followed the model of the auth_basic module which pages through the password file's
