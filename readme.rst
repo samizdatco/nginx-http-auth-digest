@@ -2,7 +2,7 @@
 Nginx Digest Authentication module
 ==================================
 
-The ``ngx_http_auth_digest`` module supplements Nginx_'s built-in Basic Authentication module by providing support for `RFC`_ 2617 `Digest Authentication`_. The module is currently functional but untested (and unreviewed) and thus inherently not ready for use in production. 
+The ``ngx_http_auth_digest`` module supplements Nginx_'s built-in Basic Authentication `module`_ by providing support for `RFC`_ 2617 `Digest Authentication`_. The module is currently functional but untested (and unreviewed) and thus inherently not ready for use in production. 
 
 A listing of the remaining roadblocks can be found in the ``bugs.txt`` file as well as in the `Issue Tracker`_. Please do consider contributing a patch if you have the time and inclination. Any help fixing the bugs or changing the implementation to a more idiomatically nginx-y one would be greatly appreciated.
 
@@ -86,10 +86,10 @@ auth_digest_user_file
 :Default: *unset*
 :Context: server, location
 :Description:
-  The password file should be of the form created by the apache htdigest command (or the 
-  included htdigest.py script). Each line of the file is a colon-separated list composed 
+  The password file should be of the form created by the apache ``htdigest`` command (or the 
+  included `htdigest.py`_ script). Each line of the file is a colon-separated list composed 
   of a username, realm, and md5 hash combining name, realm, and password. For example:
-    ``joi:ennfield:ef25e85b34208c246cfd09ab76b01db7``
+  ``joi:ennfield:ef25e85b34208c246cfd09ab76b01db7``
   
 auth_digest_timeout
 ~~~~~~~~~~~~~~~~~~~
@@ -138,6 +138,8 @@ auth_digest_shm_size
   translates into allowing around 10k non-replay requests every 70 seconds.
 
 .. _nginx: http://nginx.net
+.. _module: http://wiki.nginx.org/HttpAuthBasicModule
+.. _htdigest.py: https://github.com/samizdatco/ngx-http-auth-digest/blob/master/htdigest.py
 .. _RFC: http://www.ietf.org/rfc/rfc2617.txt
 .. _Digest Authentication: http://en.wikipedia.org/wiki/Digest_access_authentication
 .. _Issue Tracker: https://github.com/samizdatco/ngx-http-auth-digest/issues
