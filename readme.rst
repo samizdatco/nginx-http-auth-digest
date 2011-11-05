@@ -88,9 +88,7 @@ auth_digest_user_file
 :Description:
   The password file should be of the form created by the apache htdigest command (or the 
   included htdigest.py script). Each line of the file is a colon-separated list composed 
-  of a username, realm, and md5 hash combining name, realm, and password.  
-  
-  An example line:
+  of a username, realm, and md5 hash combining name, realm, and password. For example:
     ``joi:ennfield:ef25e85b34208c246cfd09ab76b01db7``
   
 auth_digest_timeout
@@ -120,7 +118,7 @@ auth_digest_expires
 
 auth_digest_replays
 ~~~~~~~~~~~~~~~~~~~
-:Syntax: ``auth_digest_expires`` *number-of-uses*
+:Syntax: ``auth_digest_replays`` *number-of-uses*
 :Default: ``20``
 :Context: server, location
 :Description:
@@ -138,7 +136,6 @@ auth_digest_shm_size
   the proper size is a little tricky since it depends upon the values set in the other directives.
   Each stored challenge takes up ``48 + replays/8`` bytes and will live for up to ``auth_digest_timeout + auth_digest_expires`` seconds. Using the default module settings this 
   translates into allowing around 10k non-replay requests every 70 seconds.
-  
 
 .. _nginx: http://nginx.net
 .. _RFC: http://www.ietf.org/rfc/rfc2617.txt
