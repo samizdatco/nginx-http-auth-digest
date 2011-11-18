@@ -43,25 +43,38 @@ Example
 You can password-protect a directory tree by adding the following lines into
 a ``server`` section in your Nginx_ configuration file::
 
-  auth_digest_shm_size 512k;
   auth_digest_user_file /opt/httpd/conf/passwd.digest; # a file created with htdigest
-
-  location /{
+  location /private{
     auth_digest 'this is not for you'; # set the realm for this location block
+  }
+
+
+The other directives control the lifespan defaults for the authentication session. The 
+following is equivalent to the previous example but demonstrates all the directives::
+
+  auth_digest_user_file /opt/httpd/conf/passwd.digest;
+  auth_digest_shm_size 10m;  # the storage space allocated for tracking active sessions
+
+  location /private {
+    auth_digest 'this is not for you';
     auth_digest_timeout 60s; # allow users to wait 1 minute between receiving the
                              # challenge and hitting send in the browser dialog box
     auth_digest_expires 10s; # after a successful challenge/response, let the client
                              # continue to use the same nonce for additional requests
                              # for 10 seconds before generating a new challenge
-    auth_digest_replays 12;  # also generate a new challenge if the client uses the
-                             # same nonce more than 12 times before the expire time limit
-
-    location /pub{
-      auth_digest off;       # this sub-tree will be accessible without authentication
-    }
+    auth_digest_replays 20;  # also generate a new challenge if the client uses the
+                             # same nonce more than 20 times before the expire time limit
   }
 
-Note that the only mandatory directives are ``auth_digest`` and ``auth_user_file``, but do consider whether the default value of ``auth_digest_shm_size`` is appropriate for your site.
+Adding digest authentication to a location will affect any uris that match that block. To
+disable authentication for specific sub-branches off a uri, set ``auth_digest`` to ``off``::
+
+  location / {
+    auth_digest 'this is not for you';
+    location /pub {
+      auth_digest off; # this sub-tree will be accessible without authentication
+    }
+  }
 
 Directives
 ==========
@@ -129,13 +142,13 @@ auth_digest_replays
 auth_digest_shm_size
 ~~~~~~~~~~~~~~~~~~~~
 :Syntax: ``auth_digest_shm_size`` *size-in-bytes*
-:Default: ``512k``
+:Default: ``4096k``
 :Context: server
 :Description:
   The module maintains a pool of memory to save state between authenticated requests. Choosing
   the proper size is a little tricky since it depends upon the values set in the other directives.
-  Each stored challenge takes up ``48 + replays/8`` bytes and will live for up to ``auth_digest_timeout + auth_digest_expires`` seconds. Using the default module settings this 
-  translates into allowing around 10k non-replay requests every 70 seconds.
+  Each stored challenge takes up ``48 + ceil(replays/8)`` bytes and will live for up to ``auth_digest_timeout + auth_digest_expires`` seconds. Using the default module settings this 
+  translates into allowing around 82k non-replay requests every 70 seconds.
 
 .. _nginx: http://nginx.net
 .. _module: http://wiki.nginx.org/HttpAuthBasicModule
