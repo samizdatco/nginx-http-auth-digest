@@ -73,7 +73,6 @@ ngx_http_auth_digest_init(ngx_conf_t *cf)
     shm_name->data = (unsigned char *) "auth_digest";
 
     if (ngx_http_auth_digest_shm_size == 0) {
-        //ngx_http_auth_digest_shm_size = 128 * ngx_pagesize; // default to 512k
         ngx_http_auth_digest_shm_size = 4 * 256 * ngx_pagesize; // default to 4mb
     }
 
@@ -103,14 +102,7 @@ ngx_http_auth_digest_worker_init(ngx_cycle_t *cycle){
   ngx_http_auth_digest_cleanup_timer->data = dummy;
   ngx_http_auth_digest_cleanup_timer->handler = ngx_http_auth_digest_cleanup;
   ngx_add_timer(ngx_http_auth_digest_cleanup_timer, NGX_HTTP_AUTH_DIGEST_CLEANUP_INTERVAL);
-  
-  // ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
-  //   "worker init %i / %i", ngx_process, NGX_PROCESS_WORKER);
-      
-    
-  
   return NGX_OK;
-  // return NGX_ERROR;
 }
 
 static char *
@@ -135,32 +127,26 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
     ngx_int_t                        rc;
     ngx_err_t                        err;
     ngx_str_t                        user_file, passwd_line;
-    ngx_uint_t                       i, level, login, left, passwd, realm, hash;
+    ngx_uint_t                       i, level, left;
     ngx_file_t                       file;
     ngx_http_auth_digest_loc_conf_t *alcf;
     ngx_http_auth_digest_cred_t     *auth_fields;
-    u_char                           buf[NGX_HTTP_AUTH_BUF_SIZE];
-    enum {
-        sw_login,
-        sw_passwd,
-        sw_realm,
-        sw_skip
-    } state;
-
+    u_char                           buf[NGX_HTTP_AUTH_DIGEST_BUF_SIZE];
+    
     alcf = ngx_http_get_module_loc_conf(r, ngx_http_auth_digest_module);
     if (alcf->realm.len == 0 || alcf->user_file.value.len == 0) {
         return NGX_DECLINED;
     }
 
+    // unpack the Authorization header (if any) and verify that it's using a previously
+    // issued, non-expired nonce and an unused nc value
     auth_fields = ngx_pcalloc(r->pool, sizeof(ngx_http_auth_digest_cred_t));
-    rc = ngx_http_auth_digest_user(r, auth_fields);
+    rc = ngx_http_auth_digest_check_credentials(r, auth_fields);
 
     if (rc==NGX_DECLINED || rc==NGX_STALE) {
       // no authorization header or using a stale nonce, send a new challenge
       return ngx_http_auth_digest_send_challenge(r, &alcf->realm, rc==NGX_STALE);
-    }
-
-    if (rc == NGX_ERROR) {
+    }else if (rc == NGX_ERROR) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
@@ -196,31 +182,23 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
     file.name = user_file;
     file.log = r->connection->log;
 
-    state = sw_login;
-    passwd = 0;
-    hash = 0;
-    realm = 0;
-    login = 0;
-    left = 0;
-    offset = 0;
-
-
     // parse through the passwd file and find the individual lines, then pass them off 
-    // to be compared against the values in the authentication header
+    // to be compared against the values in the authorization header
+    left = offset = 0;
     while (1){
-      n = ngx_read_file(&file, buf+left, NGX_HTTP_AUTH_BUF_SIZE-left, offset);
+      n = ngx_read_file(&file, buf+left, NGX_HTTP_AUTH_DIGEST_BUF_SIZE-left, offset);
     
       if (n==0){
-        buf[left+n] = '\0';
+        ngx_http_auth_digest_close(&file);
         ngx_str_t remain;
-        remain.len = left+n;
+        remain.len = left;
         remain.data = buf;
+        remain.data[left] = '\0';
 
-        rc = ngx_http_auth_digest_passwd_handler(r, auth_fields, &remain);
+        rc = ngx_http_auth_digest_verify_user(r, auth_fields, &remain);
+        if (rc<0) return NGX_HTTP_INTERNAL_SERVER_ERROR;
         if (rc){
-          // ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-          //               "user \"%V\" found in realm \"%V\" (%V)",
-          //               &auth_fields->username, &auth_fields->realm, &user_file);
+          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,"user \"%V\" found in realm \"%V\" (%V)",&auth_fields->username, &auth_fields->realm, &user_file);
           return NGX_OK;
         }
         break;
@@ -248,13 +226,12 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
           }
           p = ngx_cpymem(passwd_line.data, &buf[left], i-left);
           
-          rc = ngx_http_auth_digest_passwd_handler(r, auth_fields, &passwd_line);
+          rc = ngx_http_auth_digest_verify_user(r, auth_fields, &passwd_line);
+          if (rc<0) return NGX_HTTP_INTERNAL_SERVER_ERROR;
           if (rc){
             // success! found a matching user with the same password, so let the
             // request handling pipeline proceed
-            // ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-            //               "user \"%V\" found in realm \"%V\" (%V)",
-            //               &auth_fields->username, &auth_fields->realm, &user_file);
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,"user \"%V\" found in realm \"%V\" (%V)",&auth_fields->username, &auth_fields->realm, &user_file);
             ngx_http_auth_digest_close(&file);
             return NGX_OK;
           }
@@ -272,17 +249,15 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
     }
     ngx_http_auth_digest_close(&file);
     
-    // no match was found based on the fields in the authentication header.
+    // no match was found based on the fields in the authorization header.
     // send a new challenge and let the client retry
-    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                  "user \"%V\" not found (%V)",
-                  &auth_fields->username, &user_file);
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,"user \"%V\" not found (%V)",&auth_fields->username, &user_file);
     return ngx_http_auth_digest_send_challenge(r, &alcf->realm, 0);
 }
 
 
 ngx_int_t
-ngx_http_auth_digest_user(ngx_http_request_t *r, ngx_http_auth_digest_cred_t *ctx){
+ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, ngx_http_auth_digest_cred_t *ctx){
     ngx_str_t encoded;
     ngx_int_t missing;
     if (r->headers_in.authorization == NULL) {
@@ -382,145 +357,122 @@ ngx_http_auth_digest_decode_auth(ngx_http_request_t *r, ngx_str_t *auth_str, cha
 }
 
 static ngx_int_t
-ngx_http_auth_digest_passwd_handler(ngx_http_request_t *r, ngx_http_auth_digest_cred_t *fields, ngx_str_t *line){
-  ngx_str_t HA1;
-  ngx_uint_t i, from;
+ngx_http_auth_digest_verify_user(ngx_http_request_t *r, ngx_http_auth_digest_cred_t *fields, ngx_str_t *line){
+  ngx_uint_t i, from, nomatch;
   enum {
       sw_login,
       sw_ha1,
       sw_realm
   } state;
-  u_char *p;
 
   state = sw_login;
   from = 0;
+  nomatch = 0;
   
-  ngx_str_t orig;
-  orig.len = line->len;
-  orig.data = ngx_pcalloc(r->pool, orig.len+1);
-  if (orig.data==NULL){
-    return NGX_HTTP_INTERNAL_SERVER_ERROR;
-  }
-  p = ngx_cpymem(orig.data, line->data, line->len);
-  
-  
-  // parse through a single line, matching the username and realm character-by-character
-  // against the authentication header fields
+  // step through a single line (of the passwd file), matching the username and realm 
+  // character-by-character against the request's Authorization header fields
   u_char *buf = line->data;
   for (i=0; i<=line->len; i++){
-    switch(state){
-      if (buf[i]=='#' && state!=sw_ha1) return 0;
-      
+    u_char ch = buf[i];
+
+    switch(state){      
       case sw_login:
-        
-        if (buf[i]==':'){
-          if (fields->username.len-1 != i) return 0;
+        if (ch=='#') nomatch = 1;
+        if (ch==':'){
+          if (fields->username.len-1 != i) nomatch = 1;
           state=sw_realm;
           from=i+1;
-        }else if (i>fields->username.len-1 || buf[i] != fields->username.data[i]){
-          return 0;
+        }else if (i>fields->username.len-1 || ch != fields->username.data[i]){
+          nomatch = 1;
         }
         break;
       
       case sw_realm:
-        if (buf[i]==':'){
-          if (fields->realm.len-1 != i-from) return 0; 
+        if (ch=='#') nomatch = 1;
+        if (ch==':'){
+          if (fields->realm.len-1 != i-from) nomatch = 1; 
           state=sw_ha1;
           from=i+1;
-        }else if (buf[i] != fields->realm.data[i-from]){
-          return 0;
+        }else if (ch != fields->realm.data[i-from]){
+          nomatch = 1;
         }
         break;
 
       case sw_ha1:
-        if (buf[i]=='\0' || buf[i]==':' || buf[i]=='#' || buf[i]==CR || buf[i]==LF){
-          if (i-from != 32) return 0;
-          
-          HA1.len = 33;
-          HA1.data = ngx_pcalloc(r->pool, HA1.len);
-          if (HA1.data == NULL) {
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
-          }
-          p = ngx_cpymem(HA1.data, &buf[from], 32);
-
-          // now ‘just’ do the hashing and if it matches up return 1 else 0
-          return ngx_http_auth_digest_verify(r, fields, &HA1);
+        if (ch=='\0' || ch==':' || ch=='#' || ch==CR || ch==LF){
+          if (i-from != 32) nomatch = 1;          
         }
         break;      
     }
-    
   }
   
-
-  return 1;
+  return (nomatch) ? 0 : ngx_http_auth_digest_verify_hash(r, fields, &buf[from]);
 }
 
 static ngx_int_t
-ngx_http_auth_digest_verify(ngx_http_request_t *r, ngx_http_auth_digest_cred_t *fields, ngx_str_t *HA1)
+ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cred_t *fields, u_char *hashed_pw)
 {
-  //
-  //  digest: MD5(MD5(username:realm:password):nonce:nc:cnonce:qop:MD5(method:uri))
-  // 
-  //     ha1: md5(username:realm:password) or password-hash
-  //     ha2: md5(method:uri)
-  //     qop: md5(ha1:nonce:nc:cnonce:qop:ha2)
-  //       
-  //  verify: fields->response == digest(hashed_pw)
-  // 
+  //  returns:
+  //     0: auth credentials do not match passwd file line (possible http-401)
+  //     1: credentials match (http-200)
+  //    -1: malloc failed (http-500)
 
   u_char      *p;
   ngx_str_t    http_method;
-  ngx_str_t    HA2, ha2_key;
+  ngx_str_t    HA1, HA2, ha2_key;
   ngx_str_t    digest, digest_key;
   ngx_md5_t    md5;
   u_char       hash[16];
 
+  //  the hashing scheme:
+  //    digest: MD5(MD5(username:realm:password):nonce:nc:cnonce:qop:MD5(method:uri))
+  //                ^- HA1                                           ^- HA2
+  //    verify: fields->response == MD5($hashed_pw:nonce:nc:cnonce:qop:MD5(method:uri))
+
   // ha1 was precalculated and saved to the passwd file: md5(username:realm:password)
+  HA1.len = 33;
+  HA1.data = ngx_pcalloc(r->pool, HA1.len);
+  p = ngx_cpymem(HA1.data, hashed_pw, 32);
   
   // calculate ha2: md5(method:uri)
   http_method.len = r->method_name.len+1;
   http_method.data = ngx_pcalloc(r->pool, http_method.len);
-  if (http_method.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;  
+  if (http_method.data==NULL) return -1;  
   p = ngx_cpymem(http_method.data, r->method_name.data, r->method_end - r->method_name.data+1);
   
   ha2_key.len = http_method.len + r->uri.len + 1;
   ha2_key.data = ngx_pcalloc(r->pool, ha2_key.len);
-  if (ha2_key.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  if (ha2_key.data==NULL) return -1;
   p = ngx_cpymem(ha2_key.data, http_method.data, http_method.len-1); *p++ = ':';
   p = ngx_cpymem(p, r->uri.data, r->uri.len);
 
   HA2.len = 33;
-  HA2.data = ngx_pcalloc(r->pool, 33);
+  HA2.data = ngx_pcalloc(r->pool, HA2.len);
   ngx_md5_init(&md5);
   ngx_md5_update(&md5, ha2_key.data, ha2_key.len-1);
   ngx_md5_final(hash, &md5);  
   ngx_hex_dump(HA2.data, hash, 16);
-  // ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "    ha1 md5: (%s)",HA1->data);
-  // ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "    ha2 md5: (%s)",HA2.data);
   
   // calculate digest: md5(ha1:nonce:nc:cnonce:qop:ha2)
-  digest_key.len = HA1->len-1 + fields->nonce.len-1 + fields->nc.len-1 + fields->cnonce.len-1 + fields->qop.len-1 + HA2.len-1 + 5 + 1;
+  digest_key.len = HA1.len-1 + fields->nonce.len-1 + fields->nc.len-1 + fields->cnonce.len-1 + fields->qop.len-1 + HA2.len-1 + 5 + 1;
   digest_key.data = ngx_pcalloc(r->pool, digest_key.len);
-  if (digest_key.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
+  if (digest_key.data==NULL) return -1;
   
-  p = ngx_cpymem(digest_key.data, HA1->data, HA1->len-1); *p++ = ':';  
+  p = ngx_cpymem(digest_key.data, HA1.data, HA1.len-1); *p++ = ':';  
   p = ngx_cpymem(p, fields->nonce.data, fields->nonce.len-1); *p++ = ':';
   p = ngx_cpymem(p, fields->nc.data, fields->nc.len-1); *p++ = ':';
   p = ngx_cpymem(p, fields->cnonce.data, fields->cnonce.len-1); *p++ = ':';
   p = ngx_cpymem(p, fields->qop.data, fields->qop.len-1); *p++ = ':';
   p = ngx_cpymem(p, HA2.data, HA2.len-1);  
-  // ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "  dgt key: (%s) %i",digest_key.data,digest_key.len);
-
 
   // compare the hash of the full digest string to the response field of the auth header
   digest.len = 33;
   digest.data = ngx_pcalloc(r->pool, 33);
+  if (digest.data==NULL) return -1;
   ngx_md5_init(&md5);
   ngx_md5_update(&md5, digest_key.data, digest_key.len-1);
   ngx_md5_final(hash, &md5);  
   ngx_hex_dump(digest.data, hash, 16);
-  // ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "    dst md5: (%s)",digest.data);
-  // ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "    request: (%s)",fields->response.data);
 
   return (ngx_strcmp(digest.data, fields->response.data) == 0);
 }

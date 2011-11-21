@@ -43,21 +43,21 @@ static ngx_int_t ngx_http_auth_digest_handler(ngx_http_request_t *r);
 // passwd file handling
 static void ngx_http_auth_digest_close(ngx_file_t *file);
 static char *ngx_http_auth_digest_user_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
-#define NGX_HTTP_AUTH_BUF_SIZE  2048
+#define NGX_HTTP_AUTH_DIGEST_BUF_SIZE  2048
 
 // digest challenge generation
 static ngx_int_t ngx_http_auth_digest_send_challenge(ngx_http_request_t *r,
                      ngx_str_t *realm, ngx_uint_t is_stale);
 
 // digest response validators
-static ngx_int_t ngx_http_auth_digest_user(ngx_http_request_t *r, 
+static ngx_int_t ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, 
                      ngx_http_auth_digest_cred_t *ctx);
 static ngx_inline ngx_int_t ngx_http_auth_digest_decode_auth(ngx_http_request_t *r, 
                      ngx_str_t *auth_str, char *field_name, ngx_str_t *field_val);
-static ngx_int_t ngx_http_auth_digest_passwd_handler(ngx_http_request_t *r, 
+static ngx_int_t ngx_http_auth_digest_verify_user(ngx_http_request_t *r, 
                      ngx_http_auth_digest_cred_t *fields, ngx_str_t *line);
-static ngx_int_t ngx_http_auth_digest_verify(ngx_http_request_t *r, 
-                     ngx_http_auth_digest_cred_t *fields, ngx_str_t *HA1);
+static ngx_int_t ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, 
+                     ngx_http_auth_digest_cred_t *fields, u_char *hashed_pw);
 
 // the shm segment that houses the used-nonces tree
 static ngx_uint_t      ngx_http_auth_digest_shm_size;

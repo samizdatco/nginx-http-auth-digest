@@ -8,7 +8,7 @@ A listing of the remaining roadblocks can be found in the ``bugs.txt`` file as w
 
 Dependencies
 ============
-* Sources for Nginx_ 1.0.8, and its dependencies.
+* Sources for Nginx_ 1.0.x, and its dependencies.
 
 
 Building
@@ -16,7 +16,7 @@ Building
 
 1. Unpack the Nginx_ sources::
 
-    $ tar zxvf nginx-1.0.8.tar.gz
+    $ tar zxvf nginx-1.0.x.tar.gz
 
 2. Unpack the sources for the digest module::
 
@@ -27,7 +27,7 @@ Building
    ``--add-module`` flag pointing to the directory which contains the source
    of the digest module::
 
-    $ cd nginx-1.0.8
+    $ cd nginx-1.0.x
     $ ./configure --add-module=../samizdatco-ngx-http-auth-digest-xxxxxxx  [other configure options]
 
 4. Build and install the software::
@@ -53,7 +53,7 @@ The other directives control the lifespan defaults for the authentication sessio
 following is equivalent to the previous example but demonstrates all the directives::
 
   auth_digest_user_file /opt/httpd/conf/passwd.digest;
-  auth_digest_shm_size 10m;  # the storage space allocated for tracking active sessions
+  auth_digest_shm_size 4m;   # the storage space allocated for tracking active sessions
 
   location /private {
     auth_digest 'this is not for you';
@@ -102,7 +102,7 @@ auth_digest_user_file
   The password file should be of the form created by the apache ``htdigest`` command (or the 
   included `htdigest.py`_ script). Each line of the file is a colon-separated list composed 
   of a username, realm, and md5 hash combining name, realm, and password. For example:
-  ``joi:ennfield:ef25e85b34208c246cfd09ab76b01db7``
+  ``joi:enfield:ef25e85b34208c246cfd09ab76b01db7``
   
 auth_digest_timeout
 ~~~~~~~~~~~~~~~~~~~
@@ -145,10 +145,15 @@ auth_digest_shm_size
 :Default: ``4096k``
 :Context: server
 :Description:
-  The module maintains a pool of memory to save state between authenticated requests. Choosing
-  the proper size is a little tricky since it depends upon the values set in the other directives.
-  Each stored challenge takes up ``48 + ceil(replays/8)`` bytes and will live for up to ``auth_digest_timeout + auth_digest_expires`` seconds. Using the default module settings this 
-  translates into allowing around 82k non-replay requests every 70 seconds.
+  The module maintains a fixed-size cache of active digest sessions to save state between 
+  authenticated requests. Once this cache is full, no further authentication will be possible
+  until active sessions expire. 
+  
+  As a result, choosing the proper size is a little tricky since it depends upon the values set in
+  the expiration-related directives. Each stored challenge takes up ``48 + ceil(replays/8)`` bytes
+  and will live for up to ``auth_digest_timeout + auth_digest_expires`` seconds. When using the
+  default module settings this translates into allowing around 82k non-replay requests every 70
+  seconds.
 
 .. _nginx: http://nginx.net
 .. _module: http://wiki.nginx.org/HttpAuthBasicModule

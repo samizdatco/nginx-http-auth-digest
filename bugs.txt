@@ -1,17 +1,4 @@
 state management/nginx machinery
-- all requests to digest-protected pages are funneled through a single mutex accessing an
-  rbtree of recently issued nonce values. the logic for evicting saved nonces from the tree
-  over time is fairly simple, but what is unclear to me is how to schedule these garbage 
-  collection runs.
-
-  the cleanup hook on the request's pool seems like a good candidate since it won't block the
-  request that triggered it. perhaps with an atomic flag in the shm segment preventing traffic 
-  jams of cleanup?
-  
-- a larger unknown (to me) is the performance characteristics of tree maintenance over the 
-  tree sizes (also unknown) likely to be seen in production use. it would be good to have
-  some solid numbers on which to base shm-size and eviction defaults.
-
 - there's a fair amount of painful parsing code devoted to unpacking the key/value fields
   in the Authorize header. i have to believe i'm just unaware of an nginx built-in of some
   sort that will do this part for me. however the docs only led me to a string-level
@@ -44,19 +31,13 @@ general (in)security
   sliding-window-through-a-buffer routine without a creating at least a couple off-by-one 
   errors and non-terminated strings. it would be nice to find them.
   
-- also as a result of the auth_basic-inspired character-by-character verification of the 
-  auth credentials, the current implementation could be vulnerable to timing attacks (since
-  it returns as soon as it finds a match). the simplest solution to this would seem to be adding
-  a sleep(random()) delaying the response by a few (dozen? hundred?) milliseconds. i presume the 
-  non-blocking way to do this would be to use a timer?
-
 - OOM conditions in the shm segment are not handled at all well at the moment leading to an
-  easy DOS attack. valid nonces are added to the shm and expired seconds or minutes later. 
+  easy DOS attack (presuming the shm size is set low enough to be exhaustible within the timeout
+  + expire interval). Valid nonces are added to the shm and expired seconds or minutes later. 
   Once the shm is full no new nonces can be remembered and all auth attempts will fail until
-  enough space has been claimed through expiration. It's unclear to me whether it's possible
-  to realloc the shm segment to a larger size after config-time (or if additional segments
-  could be alloc'd to allow for a bank-switching solution). If the amount of memory really is 
-  finite, then that argues for either more aggressive eviction in lomem conditions or for 
-  moving the state storage to the filesystem. Could nginx's file caching machinery be used
-  for managing expiration?
+  enough space has been claimed through expiration. 
+  
+  Resizing the shm at runtime is somewhat daunting so for the moment the ‘solution’ is to
+  make sure the shm size is at the upper end of the number of requests nginx could plausibly
+  serve within the expiration interval.
   
