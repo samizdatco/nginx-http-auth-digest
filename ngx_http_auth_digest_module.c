@@ -38,9 +38,13 @@ ngx_http_auth_digest_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_sec_value(conf->expires, prev->expires, 10);
     ngx_conf_merge_value(conf->replays, prev->replays, 20);
     ngx_conf_merge_str_value(conf->realm, prev->realm, "")
-
     if (conf->user_file.value.len == 0) {
-        conf->user_file = prev->user_file;
+      conf->user_file = prev->user_file;
+    }
+  
+    if (conf->realm.len>0 && conf->user_file.value.len == 0){
+      ngx_log_error(NGX_LOG_ERR, cf->log, 0,"auth_digest enabled but auth_digest_user_file not specified");
+      return NGX_CONF_ERROR;
     }
 
     return NGX_CONF_OK;
@@ -138,26 +142,21 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
         return NGX_DECLINED;
     }
 
-    // unpack the Authorization header (if any) and verify that it's using a previously
-    // issued, non-expired nonce and an unused nc value
+    // unpack the Authorization header (if any) and verify that it contains all
+    // required fields. otherwise send a challenge
     auth_fields = ngx_pcalloc(r->pool, sizeof(ngx_http_auth_digest_cred_t));
     rc = ngx_http_auth_digest_check_credentials(r, auth_fields);
-
-    if (rc==NGX_DECLINED || rc==NGX_STALE) {
-      // no authorization header or using a stale nonce, send a new challenge
-      return ngx_http_auth_digest_send_challenge(r, &alcf->realm, rc==NGX_STALE);
+    if (rc==NGX_DECLINED) {
+      return ngx_http_auth_digest_send_challenge(r, &alcf->realm, 0);
     }else if (rc == NGX_ERROR) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
-
-    // check and read in the passwd file from disk
+    // read in the passwd file from disk
     if (ngx_http_complex_value(r, &alcf->user_file, &user_file) != NGX_OK) {
         return NGX_ERROR;
     }
-
     fd = ngx_open_file(user_file.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, 0);
-
     if (fd == NGX_INVALID_FILE) {
         err = ngx_errno;
 
@@ -172,7 +171,6 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
 
         ngx_log_error(level, r->connection->log, err,
                       ngx_open_file_n " \"%s\" failed", user_file.data);
-
         return rc;
     }
 
@@ -189,18 +187,17 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
       n = ngx_read_file(&file, buf+left, NGX_HTTP_AUTH_DIGEST_BUF_SIZE-left, offset);
     
       if (n==0){
-        ngx_http_auth_digest_close(&file);
         ngx_str_t remain;
         remain.len = left;
         remain.data = buf;
         remain.data[left] = '\0';
 
         rc = ngx_http_auth_digest_verify_user(r, auth_fields, &remain);
-        if (rc<0) return NGX_HTTP_INTERNAL_SERVER_ERROR;
-        if (rc){
-          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,"user \"%V\" found in realm \"%V\" (%V)",&auth_fields->username, &auth_fields->realm, &user_file);
-          return NGX_OK;
+        if (rc!=NGX_DECLINED){
+          ngx_http_auth_digest_close(&file);
+          return rc;
         }
+        
         break;
       }
     
@@ -227,13 +224,9 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
           p = ngx_cpymem(passwd_line.data, &buf[left], i-left);
           
           rc = ngx_http_auth_digest_verify_user(r, auth_fields, &passwd_line);
-          if (rc<0) return NGX_HTTP_INTERNAL_SERVER_ERROR;
-          if (rc){
-            // success! found a matching user with the same password, so let the
-            // request handling pipeline proceed
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,"user \"%V\" found in realm \"%V\" (%V)",&auth_fields->username, &auth_fields->realm, &user_file);
+          if (rc != NGX_DECLINED){
             ngx_http_auth_digest_close(&file);
-            return NGX_OK;
+            return rc;
           }
           left = i+1;
         }
@@ -251,8 +244,7 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
     
     // no match was found based on the fields in the authorization header.
     // send a new challenge and let the client retry
-    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,"user \"%V\" not found (%V)",&auth_fields->username, &user_file);
-    return ngx_http_auth_digest_send_challenge(r, &alcf->realm, 0);
+    return ngx_http_auth_digest_send_challenge(r, &alcf->realm, auth_fields->stale);
 }
 
 
@@ -280,47 +272,7 @@ ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, ngx_http_auth_dige
     // bail out if anything but the opaque field is missing from the request header
     if (missing>0 || ctx->nonce.len!=17) return NGX_DECLINED;
 
-    ngx_http_auth_digest_nonce_t nonce;
-    ngx_uint_t                   key;
-    ngx_http_auth_digest_node_t *found;
-    ngx_slab_pool_t             *shpool;
-    ngx_http_auth_digest_loc_conf_t  *alcf;
-    
-    shpool = (ngx_slab_pool_t *)ngx_http_auth_digest_shm_zone->shm.addr;
-    alcf = ngx_http_get_module_loc_conf(r, ngx_http_auth_digest_module);
-
-    nonce.rnd = ngx_hextoi(ctx->nonce.data, 8);
-    nonce.t = ngx_hextoi(&ctx->nonce.data[8], 8);
-    key = ngx_crc32_short((u_char *) &nonce.rnd, sizeof nonce.rnd) ^
-          ngx_crc32_short((u_char *) &nonce.t, sizeof(nonce.t));
-    int nc = ngx_atoi(ctx->nc.data, ctx->nc.len-1);
-    found = (ngx_http_auth_digest_node_t *)ngx_http_auth_digest_rbtree_find(r, key);
-
-    if (nc<0 || nc>=alcf->replays){ 
-      // nonce has gone stale
-      return NGX_STALE;
-    }
-    if (found==NULL){ 
-      // nonce has alread expired (or was never issued)
-      return NGX_DECLINED;
-    }
-      
-    ngx_shmtx_lock(&shpool->mutex);    
-    if (ngx_bitvector_test(found->nc, nc)){
-      // if this is the first use of this nonce, switch the expiration time from the timeout
-      // param to now+expires. using the 0th element of the nc vector to flag this...
-      if (ngx_bitvector_test(found->nc, 0)){
-        ngx_bitvector_set(found->nc, 0);
-        found->expires = ngx_time() + alcf->expires;
-      }
-      ngx_bitvector_set(found->nc, nc);
-      ngx_shmtx_unlock(&shpool->mutex);
-      return NGX_OK;
-    }else{
-      // client reused an nc value. suspicious...
-      ngx_shmtx_unlock(&shpool->mutex);
-      return NGX_DECLINED;
-    }      
+    return NGX_OK;
 }
 
 static ngx_inline ngx_int_t 
@@ -406,17 +358,12 @@ ngx_http_auth_digest_verify_user(ngx_http_request_t *r, ngx_http_auth_digest_cre
     }
   }
   
-  return (nomatch) ? 0 : ngx_http_auth_digest_verify_hash(r, fields, &buf[from]);
+  return (nomatch) ? NGX_DECLINED : ngx_http_auth_digest_verify_hash(r, fields, &buf[from]);
 }
 
 static ngx_int_t
 ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cred_t *fields, u_char *hashed_pw)
 {
-  //  returns:
-  //     0: auth credentials do not match passwd file line (possible http-401)
-  //     1: credentials match (http-200)
-  //    -1: malloc failed (http-500)
-
   u_char      *p;
   ngx_str_t    http_method;
   ngx_str_t    HA1, HA2, ha2_key;
@@ -437,12 +384,12 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   // calculate ha2: md5(method:uri)
   http_method.len = r->method_name.len+1;
   http_method.data = ngx_pcalloc(r->pool, http_method.len);
-  if (http_method.data==NULL) return -1;  
+  if (http_method.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
   p = ngx_cpymem(http_method.data, r->method_name.data, r->method_end - r->method_name.data+1);
   
   ha2_key.len = http_method.len + r->uri.len + 1;
   ha2_key.data = ngx_pcalloc(r->pool, ha2_key.len);
-  if (ha2_key.data==NULL) return -1;
+  if (ha2_key.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
   p = ngx_cpymem(ha2_key.data, http_method.data, http_method.len-1); *p++ = ':';
   p = ngx_cpymem(p, r->uri.data, r->uri.len);
 
@@ -456,7 +403,7 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   // calculate digest: md5(ha1:nonce:nc:cnonce:qop:ha2)
   digest_key.len = HA1.len-1 + fields->nonce.len-1 + fields->nc.len-1 + fields->cnonce.len-1 + fields->qop.len-1 + HA2.len-1 + 5 + 1;
   digest_key.data = ngx_pcalloc(r->pool, digest_key.len);
-  if (digest_key.data==NULL) return -1;
+  if (digest_key.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
   
   p = ngx_cpymem(digest_key.data, HA1.data, HA1.len-1); *p++ = ':';  
   p = ngx_cpymem(p, fields->nonce.data, fields->nonce.len-1); *p++ = ':';
@@ -468,13 +415,52 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   // compare the hash of the full digest string to the response field of the auth header
   digest.len = 33;
   digest.data = ngx_pcalloc(r->pool, 33);
-  if (digest.data==NULL) return -1;
+  if (digest.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
   ngx_md5_init(&md5);
   ngx_md5_update(&md5, digest_key.data, digest_key.len-1);
   ngx_md5_final(hash, &md5);  
   ngx_hex_dump(digest.data, hash, 16);
+  if (ngx_strcmp(digest.data, fields->response.data) != 0) return NGX_DECLINED;
+  
+  // if the hash comparison was successful, make sure the nonce and nc values are valid
+  ngx_http_auth_digest_nonce_t     nonce;
+  ngx_uint_t                       key;
+  ngx_http_auth_digest_node_t     *found;
+  ngx_slab_pool_t                 *shpool;
+  ngx_http_auth_digest_loc_conf_t *alcf;
+  
+  shpool = (ngx_slab_pool_t *)ngx_http_auth_digest_shm_zone->shm.addr;
+  alcf = ngx_http_get_module_loc_conf(r, ngx_http_auth_digest_module);
+  nonce.rnd = ngx_hextoi(fields->nonce.data, 8);
+  nonce.t = ngx_hextoi(&fields->nonce.data[8], 8);
+  key = ngx_crc32_short((u_char *) &nonce.rnd, sizeof nonce.rnd) ^
+        ngx_crc32_short((u_char *) &nonce.t, sizeof(nonce.t));
 
-  return (ngx_strcmp(digest.data, fields->response.data) == 0);
+  int nc = ngx_atoi(fields->nc.data, fields->nc.len-1);
+  if (nc<0 || nc>=alcf->replays){ 
+    fields->stale = 1;
+    return NGX_DECLINED; 
+  }
+
+  ngx_shmtx_lock(&shpool->mutex);    
+  found = (ngx_http_auth_digest_node_t *)ngx_http_auth_digest_rbtree_find(key, ngx_http_auth_digest_rbtree->root, ngx_http_auth_digest_rbtree->sentinel);
+
+  if (found!=NULL && ngx_bitvector_test(found->nc, nc)){
+    // nonce and nc are both valid
+    if (ngx_bitvector_test(found->nc, 0)){
+      // if this is the first use of this nonce, switch the expiration time from the timeout
+      // param to now+expires. using the 0th element of the nc vector to flag this...
+      ngx_bitvector_set(found->nc, 0);
+      found->expires = ngx_time() + alcf->expires;
+    }
+    ngx_bitvector_set(found->nc, nc);
+    ngx_shmtx_unlock(&shpool->mutex);
+    return NGX_OK;
+  }else{
+    // nonce is invalid/expired or client reused an nc value. suspicious...
+    ngx_shmtx_unlock(&shpool->mutex);
+    return NGX_DECLINED;
+  }      
 }
 
 
@@ -592,7 +578,6 @@ ngx_http_auth_digest_set_shm_size(ngx_conf_t *cf, ngx_command_t *cmd, void *conf
         // create a cleanup queue big enough for the max number of tree nodes in the shm
         ngx_uint_t count = NGX_HTTP_AUTH_DIGEST_CLEANUP_BATCH_SIZE;
         ngx_http_auth_digest_cleanup_list = ngx_array_create(cf->pool, count, sizeof(ngx_rbtree_node_t *));
-        // ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "how big? %i x %i: %i",sizeof(ngx_rbtree_node_t *),count,count*sizeof(ngx_rbtree_node_t *));
                                                 
         if (ngx_http_auth_digest_cleanup_list==NULL){
           ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "Could not allocate shared memory for auth_digest");
@@ -716,25 +701,16 @@ ngx_http_auth_digest_rbtree_insert(ngx_rbtree_node_t *temp,
 
 
 static ngx_rbtree_node_t *
-ngx_http_auth_digest_rbtree_find(ngx_http_request_t *r, ngx_rbtree_key_t key){
-  ngx_slab_pool_t *shpool = (ngx_slab_pool_t *)ngx_http_auth_digest_shm_zone->shm.addr;  
-  ngx_shmtx_lock(&shpool->mutex);
-  ngx_rbtree_node_t *found = ngx_http_auth_digest_rbtree_find_walk(key, ngx_http_auth_digest_rbtree->root, ngx_http_auth_digest_rbtree->sentinel);
-  ngx_shmtx_unlock(&shpool->mutex);
-  return found;
-}
-
-static ngx_rbtree_node_t *
-ngx_http_auth_digest_rbtree_find_walk(ngx_rbtree_key_t key, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel){
+ngx_http_auth_digest_rbtree_find(ngx_rbtree_key_t key, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel){
   
   if (node==sentinel) return NULL;  
   
   ngx_rbtree_node_t *found = (node->key==key) ? node : NULL;
   if (found==NULL && node->left != sentinel){
-    found = ngx_http_auth_digest_rbtree_find_walk(key, node->left, sentinel);
+    found = ngx_http_auth_digest_rbtree_find(key, node->left, sentinel);
   }
   if (found==NULL && node->right != sentinel){
-    found = ngx_http_auth_digest_rbtree_find_walk(key, node->right, sentinel);
+    found = ngx_http_auth_digest_rbtree_find(key, node->right, sentinel);
   }
 
   return found;
@@ -817,7 +793,7 @@ static ngx_http_auth_digest_nonce_t ngx_http_auth_digest_next_nonce(ngx_http_req
           ngx_crc32_short((u_char *) &nonce.t, sizeof(nonce.t));
           
     ngx_shmtx_lock(&shpool->mutex);
-    ngx_rbtree_node_t *found = ngx_http_auth_digest_rbtree_find_walk(key, ngx_http_auth_digest_rbtree->root, ngx_http_auth_digest_rbtree->sentinel);
+    ngx_rbtree_node_t *found = ngx_http_auth_digest_rbtree_find(key, ngx_http_auth_digest_rbtree->root, ngx_http_auth_digest_rbtree->sentinel);
 
     if (found!=NULL){
       ngx_shmtx_unlock(&shpool->mutex);

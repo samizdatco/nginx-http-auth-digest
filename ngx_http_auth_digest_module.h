@@ -22,6 +22,7 @@ typedef struct {
   ngx_str_t cnonce;
   ngx_str_t response;
   ngx_str_t opaque;
+  ngx_int_t stale;
 } ngx_http_auth_digest_cred_t;
 
 // the nonce as an issue-time/random-num pair
@@ -68,8 +69,7 @@ static ngx_int_t ngx_http_auth_digest_init_shm_zone(ngx_shm_zone_t *shm_zone, vo
 
 // nonce bookkeeping
 static ngx_http_auth_digest_nonce_t ngx_http_auth_digest_next_nonce(ngx_http_request_t *r);
-static ngx_rbtree_node_t *ngx_http_auth_digest_rbtree_find(ngx_http_request_t *r, ngx_rbtree_key_t key);
-static ngx_rbtree_node_t *ngx_http_auth_digest_rbtree_find_walk(ngx_rbtree_key_t key, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
+static ngx_rbtree_node_t *ngx_http_auth_digest_rbtree_find(ngx_rbtree_key_t key, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
 
 // nonce cleanup
 #define NGX_HTTP_AUTH_DIGEST_CLEANUP_INTERVAL 3000
@@ -96,7 +96,6 @@ static int ngx_http_auth_digest_rbtree_cmp(const ngx_rbtree_node_t *v_left,
 static ngx_uint_t ngx_bitvector_size(ngx_uint_t nbits);
 static ngx_uint_t ngx_bitvector_test(char *bv, ngx_uint_t bit);
 static void ngx_bitvector_set(char *bv, ngx_uint_t bit);
-#define NGX_STALE -2600
 
 // module plumbing
 static void *ngx_http_auth_digest_create_loc_conf(ngx_conf_t *cf);
@@ -143,7 +142,7 @@ static ngx_command_t  ngx_http_auth_digest_commands[] = {
       offsetof(ngx_http_auth_digest_loc_conf_t, replays),
       NULL },
     { ngx_string("auth_digest_shm_size"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
       ngx_http_auth_digest_set_shm_size,
       0,
       0,
