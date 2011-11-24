@@ -2,9 +2,9 @@
 Nginx Digest Authentication module
 ==================================
 
-The ``ngx_http_auth_digest`` module supplements Nginx_'s built-in Basic Authentication `module`_ by providing support for `RFC`_ 2617 `Digest Authentication`_. The module is currently functional but untested (and unreviewed) and thus inherently not ready for use in production. 
+The ``ngx_http_auth_digest`` module supplements Nginx_'s built-in Basic Authentication `module`_ by providing support for `RFC`_ 2617 `Digest Authentication`_. The module is currently functional but has only been tested and reviewed by its author. And given that this is security code, one set of eyes is almost certainly insufficient to guarantee that it's 100% correct. Until a few bug reports come in and some of the ‘unknown unknowns’ in the code are flushed out, consider this module an ‘alpha’ and treat it with the appropriate amount of skepticism.
 
-A listing of the remaining roadblocks can be found in the ``bugs.txt`` file as well as in the `Issue Tracker`_. Please do consider contributing a patch if you have the time and inclination. Any help fixing the bugs or changing the implementation to a more idiomatically nginx-y one would be greatly appreciated.
+A listing of known issues with the module can be found in the ``bugs.txt`` file as well as in the `Issue Tracker`_. Please do consider contributing a patch if you have the time and inclination. Any help fixing the bugs or changing the implementation to a more idiomatically nginx-y one would be greatly appreciated.
 
 Dependencies
 ============
@@ -20,7 +20,7 @@ Building
 
 2. Unpack the sources for the digest module::
 
-    $ tar xzvf samizdatco-ngx-http-auth-digest-xxxxxxx.tar.gz
+    $ tar xzvf samizdatco-nginx-http-auth-digest-xxxxxxx.tar.gz
 
 3. Change to the directory which contains the Nginx_ sources, run the
    configuration script with the desired options and be sure to put an
@@ -28,7 +28,7 @@ Building
    of the digest module::
 
     $ cd nginx-1.0.x
-    $ ./configure --add-module=../samizdatco-ngx-http-auth-digest-xxxxxxx  [other configure options]
+    $ ./configure --add-module=../samizdatco-nginx-http-auth-digest-xxxxxxx  [other configure options]
 
 4. Build and install the software::
 
@@ -157,8 +157,8 @@ auth_digest_shm_size
 
 .. _nginx: http://nginx.net
 .. _module: http://wiki.nginx.org/HttpAuthBasicModule
-.. _htdigest.py: https://github.com/samizdatco/ngx-http-auth-digest/blob/master/htdigest.py
+.. _htdigest.py: https://github.com/samizdatco/nginx-http-auth-digest/blob/master/htdigest.py
 .. _RFC: http://www.ietf.org/rfc/rfc2617.txt
 .. _Digest Authentication: http://en.wikipedia.org/wiki/Digest_access_authentication
-.. _Issue Tracker: https://github.com/samizdatco/ngx-http-auth-digest/issues
+.. _Issue Tracker: https://github.com/samizdatco/nginx-http-auth-digest/issues
 .. _MitM: http://en.wikipedia.org/wiki/Man-in-the-middle_attack
