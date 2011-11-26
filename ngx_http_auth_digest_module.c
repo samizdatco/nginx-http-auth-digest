@@ -412,7 +412,6 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   p = ngx_cpymem(p, fields->qop.data, fields->qop.len-1); *p++ = ':';
   p = ngx_cpymem(p, HA2.data, HA2.len-1);  
 
-  // compare the hash of the full digest string to the response field of the auth header
   digest.len = 33;
   digest.data = ngx_pcalloc(r->pool, 33);
   if (digest.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -420,14 +419,18 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   ngx_md5_update(&md5, digest_key.data, digest_key.len-1);
   ngx_md5_final(hash, &md5);  
   ngx_hex_dump(digest.data, hash, 16);
+
+  // compare the hash of the full digest string to the response field of the auth header
+  // and bail out if they don't match
   if (ngx_strcmp(digest.data, fields->response.data) != 0) return NGX_DECLINED;
   
-  // if the hash comparison was successful, make sure the nonce and nc values are valid
   ngx_http_auth_digest_nonce_t     nonce;
   ngx_uint_t                       key;
   ngx_http_auth_digest_node_t     *found;
   ngx_slab_pool_t                 *shpool;
   ngx_http_auth_digest_loc_conf_t *alcf;
+  ngx_table_elt_t                 *info_header;
+  ngx_str_t                        hkey, hval;
   
   shpool = (ngx_slab_pool_t *)ngx_http_auth_digest_shm_zone->shm.addr;
   alcf = ngx_http_get_module_loc_conf(r, ngx_http_auth_digest_module);
@@ -442,19 +445,56 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
     return NGX_DECLINED; 
   }
 
+  // make sure nonce and nc are both valid
   ngx_shmtx_lock(&shpool->mutex);    
   found = (ngx_http_auth_digest_node_t *)ngx_http_auth_digest_rbtree_find(key, ngx_http_auth_digest_rbtree->root, ngx_http_auth_digest_rbtree->sentinel);
-
-  if (found!=NULL && ngx_bitvector_test(found->nc, nc)){
-    // nonce and nc are both valid
+  if (found!=NULL && ngx_bitvector_test(found->nc, nc)){    
     if (ngx_bitvector_test(found->nc, 0)){
       // if this is the first use of this nonce, switch the expiration time from the timeout
       // param to now+expires. using the 0th element of the nc vector to flag this...
       ngx_bitvector_set(found->nc, 0);
       found->expires = ngx_time() + alcf->expires;
     }
+    
+    // mark this nc as ‘used’ to prevent replays 
     ngx_bitvector_set(found->nc, nc);
     ngx_shmtx_unlock(&shpool->mutex);
+    
+    // recalculate the digest with a modified HA2 value (for rspauth) and emit the
+    // Authentication-Info header    
+    ngx_memset(ha2_key.data, 0, ha2_key.len);
+    p = ngx_sprintf(ha2_key.data, ":%s", r->uri.data);
+
+    ngx_memset(HA2.data, 0, HA2.len);
+    ngx_md5_init(&md5);
+    ngx_md5_update(&md5, ha2_key.data, r->uri.len);
+    ngx_md5_final(hash, &md5);  
+    ngx_hex_dump(HA2.data, hash, 16);
+
+    ngx_memset(digest_key.data, 0, digest_key.len);
+    p = ngx_cpymem(digest_key.data, HA1.data, HA1.len-1); *p++ = ':';  
+    p = ngx_cpymem(p, fields->nonce.data, fields->nonce.len-1); *p++ = ':';
+    p = ngx_cpymem(p, fields->nc.data, fields->nc.len-1); *p++ = ':';
+    p = ngx_cpymem(p, fields->cnonce.data, fields->cnonce.len-1); *p++ = ':';
+    p = ngx_cpymem(p, fields->qop.data, fields->qop.len-1); *p++ = ':';
+    p = ngx_cpymem(p, HA2.data, HA2.len-1);  
+
+    ngx_md5_init(&md5);
+    ngx_md5_update(&md5, digest_key.data, digest_key.len-1);
+    ngx_md5_final(hash, &md5);  
+    ngx_hex_dump(digest.data, hash, 16);
+    
+    ngx_str_set(&hkey, "Authentication-Info");
+    hval.len = sizeof("qop=\"auth\", rspauth=\"\", cnonce=\"\", nc=") + fields->cnonce.len + fields->nc.len + digest.len;
+    hval.data = ngx_pcalloc(r->pool, hval.len);
+    if (hval.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    p = ngx_sprintf(hval.data, "qop=\"auth\", rspauth=\"%s\", cnonce=\"%s\", nc=%s", digest.data, fields->cnonce.data, fields->nc.data);
+    
+    info_header = ngx_list_push(&r->headers_out.headers);
+    if (info_header == NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;    
+    info_header->key = hkey;
+    info_header->value = hval;
+    info_header->hash = 1;
     return NGX_OK;
   }else{
     // nonce is invalid/expired or client reused an nc value. suspicious...
