@@ -96,6 +96,15 @@ ngx_http_auth_digest_worker_init(ngx_cycle_t *cycle){
      return NGX_OK;
   }
 
+  // create a cleanup queue big enough for the max number of tree nodes in the shm
+  ngx_http_auth_digest_cleanup_list = ngx_array_create(cycle->pool, 
+                                                      NGX_HTTP_AUTH_DIGEST_CLEANUP_BATCH_SIZE, 
+                                                      sizeof(ngx_rbtree_node_t *));                                            
+  if (ngx_http_auth_digest_cleanup_list==NULL){
+    ngx_log_error(NGX_LOG_EMERG, cycle->log, 0, "Could not allocate shared memory for auth_digest");
+    return NGX_ERROR;          
+  }
+  
   ngx_connection_t  *dummy;
   dummy = ngx_pcalloc(cycle->pool, sizeof(ngx_connection_t));
   if (dummy == NULL) return NGX_ERROR;
@@ -136,7 +145,10 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
     ngx_http_auth_digest_loc_conf_t *alcf;
     ngx_http_auth_digest_cred_t     *auth_fields;
     u_char                           buf[NGX_HTTP_AUTH_DIGEST_BUF_SIZE];
-    
+
+
+
+    // if digest auth is disabled for this location, bail out immediately
     alcf = ngx_http_get_module_loc_conf(r, ngx_http_auth_digest_module);
     if (alcf->realm.len == 0 || alcf->user_file.value.len == 0) {
         return NGX_DECLINED;
@@ -441,7 +453,7 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
 
   int nc = ngx_atoi(fields->nc.data, fields->nc.len-1);
   if (nc<0 || nc>=alcf->replays){ 
-    fields->stale = 1;
+    fields->stale = 1;    
     return NGX_DECLINED; 
   }
 
@@ -458,6 +470,14 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
     
     // mark this nc as ‘used’ to prevent replays 
     ngx_bitvector_set(found->nc, nc);
+
+    
+    // todo: if the bitvector is now ‘full’, could preemptively expire the node from the rbtree
+    // ngx_rbtree_delete(ngx_http_auth_digest_rbtree, found);
+    // ngx_slab_free_locked(shpool, found);
+
+
+    
     ngx_shmtx_unlock(&shpool->mutex);
     
     // recalculate the digest with a modified HA2 value (for rspauth) and emit the
@@ -614,19 +634,8 @@ ngx_http_auth_digest_set_shm_size(ngx_conf_t *cf, ngx_command_t *cmd, void *conf
         ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "Cannot change memory area size without restart, ignoring change");
     } else {
         ngx_http_auth_digest_shm_size = new_shm_size;
-        
-        // create a cleanup queue big enough for the max number of tree nodes in the shm
-        ngx_uint_t count = NGX_HTTP_AUTH_DIGEST_CLEANUP_BATCH_SIZE;
-        ngx_http_auth_digest_cleanup_list = ngx_array_create(cf->pool, count, sizeof(ngx_rbtree_node_t *));
-                                                
-        if (ngx_http_auth_digest_cleanup_list==NULL){
-          ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "Could not allocate shared memory for auth_digest");
-          return NGX_CONF_ERROR;          
-        }
-                                                
     }
     ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "Using %udKiB of shared memory for auth_digest", new_shm_size >> 10);
-
     return NGX_CONF_OK;
 }
 

@@ -91,11 +91,16 @@ static void ngx_rbtree_generic_insert(ngx_rbtree_node_t *temp,
 static int ngx_http_auth_digest_rbtree_cmp(const ngx_rbtree_node_t *v_left,
                 const ngx_rbtree_node_t *v_right);
 
-
-// nc-counting
-static ngx_uint_t ngx_bitvector_size(ngx_uint_t nbits);
-static ngx_uint_t ngx_bitvector_test(char *bv, ngx_uint_t bit);
-static void ngx_bitvector_set(char *bv, ngx_uint_t bit);
+// quick & dirty bitvectors (for marking used nc values)
+static ngx_inline ngx_uint_t ngx_bitvector_size(ngx_uint_t nbits){
+    return ((nbits + CHAR_BIT - 1) / CHAR_BIT);
+}
+static ngx_inline ngx_uint_t ngx_bitvector_test(char *bv, ngx_uint_t bit){
+    return ((bv)[((bit) / CHAR_BIT)] & (1 << ((bit) % CHAR_BIT)));
+}
+static ngx_inline void ngx_bitvector_set(char *bv, ngx_uint_t bit){
+    ((bv)[((bit) / CHAR_BIT)] &= ~(1 << ((bit) % CHAR_BIT)));
+}
 
 // module plumbing
 static void *ngx_http_auth_digest_create_loc_conf(ngx_conf_t *cf);
@@ -103,7 +108,6 @@ static char *ngx_http_auth_digest_merge_loc_conf(ngx_conf_t *cf,void *parent, vo
 static ngx_int_t ngx_http_auth_digest_init(ngx_conf_t *cf);
 static ngx_int_t ngx_http_auth_digest_worker_init(ngx_cycle_t *cycle);
 static char *ngx_http_auth_digest(ngx_conf_t *cf, void *post, void *data);
-
 
 // module datastructures
 static ngx_conf_post_handler_pt ngx_http_auth_digest_p = ngx_http_auth_digest;
@@ -180,16 +184,5 @@ ngx_module_t  ngx_http_auth_digest_module = {
     NULL,                                  /* exit master */
     NGX_MODULE_V1_PADDING
 };
-
-// quick & dirty bitvectors for holding the nc usage record
-#define BITMASK(b) (1 << ((b) % CHAR_BIT))
-#define BITSLOT(b) ((b) / CHAR_BIT)
-#define BITSET(a, b) ((a)[BITSLOT(b)] |= BITMASK(b))
-#define BITCLEAR(a, b) ((a)[BITSLOT(b)] &= ~BITMASK(b))
-#define BITTEST(a, b) ((a)[BITSLOT(b)] & BITMASK(b))
-#define BITNSLOTS(nb) ((nb + CHAR_BIT - 1) / CHAR_BIT)
-static ngx_inline ngx_uint_t ngx_bitvector_size(ngx_uint_t nbits){ return BITNSLOTS(nbits); }
-static ngx_inline ngx_uint_t ngx_bitvector_test(char *bv, ngx_uint_t bit){ return BITTEST(bv, bit); }
-static ngx_inline void ngx_bitvector_set(char *bv, ngx_uint_t bit){ BITCLEAR(bv, bit); }
 
 #endif
