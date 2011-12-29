@@ -140,18 +140,25 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
     ngx_int_t                        rc;
     ngx_err_t                        err;
     ngx_str_t                        user_file, passwd_line;
-    ngx_uint_t                       i, level, left;
     ngx_file_t                       file;
+    ngx_uint_t                       i, begin, tail, idle;
     ngx_http_auth_digest_loc_conf_t *alcf;
     ngx_http_auth_digest_cred_t     *auth_fields;
     u_char                           buf[NGX_HTTP_AUTH_DIGEST_BUF_SIZE];
-
+    u_char                           line[NGX_HTTP_AUTH_DIGEST_BUF_SIZE];
+    u_char                          *p;
 
 
     // if digest auth is disabled for this location, bail out immediately
     alcf = ngx_http_get_module_loc_conf(r, ngx_http_auth_digest_module);
     if (alcf->realm.len == 0 || alcf->user_file.value.len == 0) {
         return NGX_DECLINED;
+        
+        //
+        // BUG? wait wait wait. shouldn't this be ngx_ok by default in the case
+        //      of the former and ngx_declined in the latter?
+        //
+        
     }
 
     // unpack the Authorization header (if any) and verify that it contains all
@@ -164,12 +171,13 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    // read in the passwd file from disk
+    // check for the existence of a passwd file and attempt to open it
     if (ngx_http_complex_value(r, &alcf->user_file, &user_file) != NGX_OK) {
         return NGX_ERROR;
     }
     fd = ngx_open_file(user_file.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, 0);
     if (fd == NGX_INVALID_FILE) {
+        ngx_uint_t level;
         err = ngx_errno;
 
         if (err == NGX_ENOENT) {
@@ -185,76 +193,72 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
                       ngx_open_file_n " \"%s\" failed", user_file.data);
         return rc;
     }
-
     ngx_memzero(&file, sizeof(ngx_file_t));
-
     file.fd = fd;
     file.name = user_file;
     file.log = r->connection->log;
 
-    // parse through the passwd file and find the individual lines, then pass them off 
+    // step through the passwd file and find the individual lines, then pass them off 
     // to be compared against the values in the authorization header
-    left = offset = 0;
+    passwd_line.data = line;
+    offset = begin = tail = 0;
+    idle = 1;
+    ngx_memzero(buf, NGX_HTTP_AUTH_DIGEST_BUF_SIZE);
+    ngx_memzero(passwd_line.data, NGX_HTTP_AUTH_DIGEST_BUF_SIZE);
     while (1){
-      n = ngx_read_file(&file, buf+left, NGX_HTTP_AUTH_DIGEST_BUF_SIZE-left, offset);
-    
-      if (n==0){
-        ngx_str_t remain;
-        remain.len = left;
-        remain.data = buf;
-        remain.data[left] = '\0';
-
-        rc = ngx_http_auth_digest_verify_user(r, auth_fields, &remain);
-        if (rc!=NGX_DECLINED){
-          ngx_http_auth_digest_close(&file);
-          return rc;
-        }
-        
-        break;
-      }
-    
+      n = ngx_read_file(&file, buf+tail, NGX_HTTP_AUTH_DIGEST_BUF_SIZE-tail, offset);      
       if (n == NGX_ERROR) {
         ngx_http_auth_digest_close(&file);
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
       }
-    
-      left = 0;
-      for (i=left; i<(ngx_uint_t)n; i++){
-        if (i==left && (buf[i]==CR||buf[i]==LF||buf[i]=='\0')){
-          left++;
-          continue;
-        }
-        
-        if (buf[i] == CR || buf[i] == LF){
-          u_char *p;
-          passwd_line.len = i - left + 1;
-          passwd_line.data = ngx_pcalloc(r->pool, passwd_line.len);
-          if (passwd_line.data==NULL){
-            ngx_http_auth_digest_close(&file);
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+      
+      begin = 0;
+      for (i=0; i<n+tail; i++){
+        if (buf[i] == '\n' || buf[i] == '\r'){
+          if (!idle && i-begin>36){ // 36 is the min length with a single-char name and realm
+            p = ngx_cpymem(passwd_line.data, &buf[begin], i-begin);
+            p[0] = '\0';
+            passwd_line.len = i-begin;
+            rc = ngx_http_auth_digest_verify_user(r, auth_fields, &passwd_line);
+            if (rc != NGX_DECLINED){
+              ngx_http_auth_digest_close(&file);
+              return rc;
+            }
           }
-          p = ngx_cpymem(passwd_line.data, &buf[left], i-left);
-          
+          idle = 1;
+          begin = i;
+        }else if(idle){
+          idle = 0;
+          begin = i;
+        }
+      }
+    
+      if (!idle){
+        tail = n + tail - begin;
+        if (n==0 && tail>36){
+          p = ngx_cpymem(passwd_line.data, &buf[begin], tail);
+          p[0] = '\0';
+          passwd_line.len = i-begin;
           rc = ngx_http_auth_digest_verify_user(r, auth_fields, &passwd_line);
           if (rc != NGX_DECLINED){
             ngx_http_auth_digest_close(&file);
             return rc;
-          }
-          left = i+1;
+          }                        
+        }else{
+          ngx_memmove(buf, &buf[begin], tail);
         }
       }
+    
+      if (n==0){
+          break;
+      }      
       
-      if (left<=(ngx_uint_t)n){
-        ngx_memmove(buf, &buf[left], n-left);
-        left = n-left;
-      }else{
-        left = 0;
-      }
-      offset+=n;
+      offset += n;
     }
+
     ngx_http_auth_digest_close(&file);
     
-    // no match was found based on the fields in the authorization header.
+    // since no match was found based on the fields in the authorization header,
     // send a new challenge and let the client retry
     return ngx_http_auth_digest_send_challenge(r, &alcf->realm, auth_fields->stale);
 }

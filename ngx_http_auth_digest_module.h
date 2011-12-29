@@ -44,7 +44,7 @@ static ngx_int_t ngx_http_auth_digest_handler(ngx_http_request_t *r);
 // passwd file handling
 static void ngx_http_auth_digest_close(ngx_file_t *file);
 static char *ngx_http_auth_digest_user_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
-#define NGX_HTTP_AUTH_DIGEST_BUF_SIZE  2048
+#define NGX_HTTP_AUTH_DIGEST_BUF_SIZE 4096
 
 // digest challenge generation
 static ngx_int_t ngx_http_auth_digest_send_challenge(ngx_http_request_t *r,

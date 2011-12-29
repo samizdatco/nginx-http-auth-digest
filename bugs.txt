@@ -24,13 +24,13 @@ rfc 2617
   though it only exists as a convenience to stash state in, but i could believe some software
   out there depends upon it...
 
+- apparently (older?) versions of internet explorer don't obey the spec when dealing with
+  paths that contain a query string. the client should include the query in the url used
+  to compute the digest, but IE truncates it at the question mark. see ‘current browser 
+  issues’ comment here for details: http://www.xiven.com/sourcecode/digestauthentication.php
+
 
 general (in)security
-- i followed the model of the auth_basic module which pages through the password file's
-  contents on every request. i know from experience that it's impossible for me to write that 
-  sliding-window-through-a-buffer routine without a creating at least a couple off-by-one 
-  errors and non-terminated strings. it would be nice to find them.
-  
 - OOM conditions in the shm segment are not handled at all well at the moment leading to an
   easy DOS attack (presuming the shm size is set low enough to be exhaustible within the timeout
   + expire interval). Valid nonces are added to the shm and expired seconds or minutes later. 
