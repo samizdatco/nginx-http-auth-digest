@@ -771,8 +771,11 @@ ngx_http_auth_digest_rbtree_find(ngx_rbtree_key_t key, ngx_rbtree_node_t *node, 
 
 void ngx_http_auth_digest_cleanup(ngx_event_t *ev){
   if (ev->timer_set) ngx_del_timer(ev);
-  ngx_add_timer(ev, NGX_HTTP_AUTH_DIGEST_CLEANUP_INTERVAL);  
- 
+
+  if( !(ngx_quit || ngx_terminate || ngx_exiting ) ) {
+    ngx_add_timer(ev, NGX_HTTP_AUTH_DIGEST_CLEANUP_INTERVAL);  
+  }
+
   if (ngx_trylock(ngx_http_auth_digest_cleanup_lock)){
     ngx_http_auth_digest_rbtree_prune(ev->log);
     ngx_unlock(ngx_http_auth_digest_cleanup_lock);    
