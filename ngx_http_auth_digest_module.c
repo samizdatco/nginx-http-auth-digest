@@ -320,6 +320,8 @@ ngx_http_auth_digest_decode_auth(ngx_http_request_t *r, ngx_str_t *auth_str, cha
     field_val->data = ngx_pcalloc(r->pool, field_val->len);
     p = ngx_cpymem(field_val->data, start, last-start);
   }
+
+  p=p;
   
   return 0;
 }
