@@ -398,16 +398,18 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   p = ngx_cpymem(HA1.data, hashed_pw, 32);
   
   // calculate ha2: md5(method:uri)
-  http_method.len = r->method_name.len+1;
+  http_method.len = r->method_name.len+1 ;
   http_method.data = ngx_pcalloc(r->pool, http_method.len);
   if (http_method.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
   p = ngx_cpymem(http_method.data, r->method_name.data, r->method_end - r->method_name.data+1);
   
-  ha2_key.len = http_method.len + r->uri.len + 1;
+  // data in fields has null characters at then end.
+  ha2_key.len = http_method.len + fields->uri.len;
   ha2_key.data = ngx_pcalloc(r->pool, ha2_key.len);
+
   if (ha2_key.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
   p = ngx_cpymem(ha2_key.data, http_method.data, http_method.len-1); *p++ = ':';
-  p = ngx_cpymem(p, r->uri.data, r->uri.len);
+  p = ngx_cpymem(p, fields->uri.data, fields->uri.len - 1 );
 
   HA2.len = 33;
   HA2.data = ngx_pcalloc(r->pool, HA2.len);
@@ -773,7 +775,7 @@ void ngx_http_auth_digest_cleanup(ngx_event_t *ev){
   if (ev->timer_set) ngx_del_timer(ev);
 
   if( !(ngx_quit || ngx_terminate || ngx_exiting ) ) {
-    ngx_add_timer(ev, NGX_HTTP_AUTH_DIGEST_CLEANUP_INTERVAL);  
+    ngx_add_timer(ev, NGX_HTTP_AUTH_DIGEST_CLEANUP_INTERVAL);
   }
 
   if (ngx_trylock(ngx_http_auth_digest_cleanup_lock)){
