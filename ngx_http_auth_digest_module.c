@@ -401,7 +401,7 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   http_method.len = r->method_name.len+1 ;
   http_method.data = ngx_pcalloc(r->pool, http_method.len);
   if (http_method.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
-  p = ngx_cpymem(http_method.data, r->method_name.data, r->method_end - r->method_name.data+1);
+  p = ngx_cpymem(http_method.data, r->method_name.data, r->method_name.len);
   
   // data in fields has null characters at then end.
   ha2_key.len = http_method.len + fields->uri.len;
@@ -419,7 +419,7 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   ngx_hex_dump(HA2.data, hash, 16);
   
   // calculate digest: md5(ha1:nonce:nc:cnonce:qop:ha2)
-  digest_key.len = HA1.len-1 + fields->nonce.len-1 + fields->nc.len-1 + fields->cnonce.len-1 + fields->qop.len-1 + HA2.len-1 + 5 + 1;
+  digest_key.len = HA1.len + fields->nonce.len + fields->nc.len + fields->cnonce.len + fields->qop.len + HA2.len;
   digest_key.data = ngx_pcalloc(r->pool, digest_key.len);
   if (digest_key.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
   
