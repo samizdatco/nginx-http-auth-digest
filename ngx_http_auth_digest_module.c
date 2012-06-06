@@ -397,6 +397,10 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   HA1.data = ngx_pcalloc(r->pool, HA1.len);
   p = ngx_cpymem(HA1.data, hashed_pw, 32);
   
+  // Return 400 if Auth header URI and the raw header from the http request
+  // are not the same
+  if (ngx_strncmp(r->unparsed_uri.data, fields->uri.data, fields->uri.len-1) != 0) return NGX_HTTP_BAD_REQUEST;
+
   // calculate ha2: md5(method:uri)
   http_method.len = r->method_name.len+1 ;
   http_method.data = ngx_pcalloc(r->pool, http_method.len);
