@@ -397,17 +397,23 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   HA1.data = ngx_pcalloc(r->pool, HA1.len);
   p = ngx_cpymem(HA1.data, hashed_pw, 32);
   
+  // Return 400 if Auth header URI and the raw header from the http request
+  // are not the same
+  if (ngx_strncmp(r->unparsed_uri.data, fields->uri.data, fields->uri.len-1) != 0) return NGX_HTTP_BAD_REQUEST;
+
   // calculate ha2: md5(method:uri)
-  http_method.len = r->method_name.len+1;
+  http_method.len = r->method_name.len+1 ;
   http_method.data = ngx_pcalloc(r->pool, http_method.len);
   if (http_method.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
-  p = ngx_cpymem(http_method.data, r->method_name.data, r->method_end - r->method_name.data+1);
+  p = ngx_cpymem(http_method.data, r->method_name.data, r->method_name.len);
   
-  ha2_key.len = http_method.len + r->uri.len + 1;
+  // data in fields has null characters at then end.
+  ha2_key.len = http_method.len + fields->uri.len;
   ha2_key.data = ngx_pcalloc(r->pool, ha2_key.len);
+
   if (ha2_key.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
   p = ngx_cpymem(ha2_key.data, http_method.data, http_method.len-1); *p++ = ':';
-  p = ngx_cpymem(p, r->uri.data, r->uri.len);
+  p = ngx_cpymem(p, fields->uri.data, fields->uri.len - 1 );
 
   HA2.len = 33;
   HA2.data = ngx_pcalloc(r->pool, HA2.len);
@@ -417,7 +423,7 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   ngx_hex_dump(HA2.data, hash, 16);
   
   // calculate digest: md5(ha1:nonce:nc:cnonce:qop:ha2)
-  digest_key.len = HA1.len-1 + fields->nonce.len-1 + fields->nc.len-1 + fields->cnonce.len-1 + fields->qop.len-1 + HA2.len-1 + 5 + 1;
+  digest_key.len = HA1.len + fields->nonce.len + fields->nc.len + fields->cnonce.len + fields->qop.len + HA2.len;
   digest_key.data = ngx_pcalloc(r->pool, digest_key.len);
   if (digest_key.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
   
@@ -771,8 +777,11 @@ ngx_http_auth_digest_rbtree_find(ngx_rbtree_key_t key, ngx_rbtree_node_t *node, 
 
 void ngx_http_auth_digest_cleanup(ngx_event_t *ev){
   if (ev->timer_set) ngx_del_timer(ev);
-  ngx_add_timer(ev, NGX_HTTP_AUTH_DIGEST_CLEANUP_INTERVAL);  
- 
+
+  if( !(ngx_quit || ngx_terminate || ngx_exiting ) ) {
+    ngx_add_timer(ev, NGX_HTTP_AUTH_DIGEST_CLEANUP_INTERVAL);
+  }
+
   if (ngx_trylock(ngx_http_auth_digest_cleanup_lock)){
     ngx_http_auth_digest_rbtree_prune(ev->log);
     ngx_unlock(ngx_http_auth_digest_cleanup_lock);    
