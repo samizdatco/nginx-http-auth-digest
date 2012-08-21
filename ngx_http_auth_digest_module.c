@@ -487,11 +487,11 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
     // recalculate the digest with a modified HA2 value (for rspauth) and emit the
     // Authentication-Info header    
     ngx_memset(ha2_key.data, 0, ha2_key.len);
-    p = ngx_sprintf(ha2_key.data, ":%s", r->unparsed_uri.data);
+    p = ngx_snprintf(ha2_key.data, 1 + r->unparsed_uri.len, ":%s", r->unparsed_uri.data);
 
     ngx_memset(HA2.data, 0, HA2.len);
     ngx_md5_init(&md5);
-    ngx_md5_update(&md5, ha2_key.data, r->unparsed_uri.len);
+    ngx_md5_update(&md5, ha2_key.data, 1 + r->unparsed_uri.len);
     ngx_md5_final(hash, &md5);  
     ngx_hex_dump(HA2.data, hash, 16);
 
