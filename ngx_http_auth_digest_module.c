@@ -294,11 +294,11 @@ ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, ngx_http_auth_dige
 static ngx_inline ngx_int_t 
 ngx_http_auth_digest_decode_auth(ngx_http_request_t *r, ngx_str_t *auth_str, char *field_name, ngx_str_t *field_val){
   ngx_str_t key;
-  u_char *start, *last, *p;
+  u_char *start, *last;
 
   key.len = ngx_strlen(field_name) + 2;
   key.data = ngx_pcalloc(r->pool, key.len);
-  p = ngx_sprintf(key.data,"%s=", field_name);
+  (void) ngx_sprintf(key.data,"%s=", field_name);
   
   start = (u_char *) ngx_strstr(auth_str->data, key.data);
   if (start==NULL){
@@ -318,7 +318,7 @@ ngx_http_auth_digest_decode_auth(ngx_http_request_t *r, ngx_str_t *auth_str, cha
   if (last>start){        
     field_val->len = last-start + 1;
     field_val->data = ngx_pcalloc(r->pool, field_val->len);
-    p = ngx_cpymem(field_val->data, start, last-start);
+    (void) ngx_cpymem(field_val->data, start, last-start);
   }
   
   return 0;
