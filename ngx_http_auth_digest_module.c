@@ -148,6 +148,9 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
     u_char                           line[NGX_HTTP_AUTH_DIGEST_BUF_SIZE];
     u_char                          *p;
 
+    if (r->internal) {
+        return NGX_DECLINED;      
+    }
 
     // if digest auth is disabled for this location, bail out immediately
     alcf = ngx_http_get_module_loc_conf(r, ngx_http_auth_digest_module);
