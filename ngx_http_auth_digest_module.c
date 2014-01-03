@@ -269,62 +269,281 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
 
 ngx_int_t
 ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, ngx_http_auth_digest_cred_t *ctx){
-    ngx_str_t encoded;
-    ngx_int_t missing;
+
     if (r->headers_in.authorization == NULL) {
         // ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "no auth header");
         return NGX_DECLINED;
     }
 
-    encoded = r->headers_in.authorization->value;
-    missing = 0;
-    missing += ngx_http_auth_digest_decode_auth(r, &encoded, "username", &ctx->username);
-    missing += ngx_http_auth_digest_decode_auth(r, &encoded, "qop", &ctx->qop);
-    missing += ngx_http_auth_digest_decode_auth(r, &encoded, "realm", &ctx->realm);
-    missing += ngx_http_auth_digest_decode_auth(r, &encoded, "nonce", &ctx->nonce);
-    missing += ngx_http_auth_digest_decode_auth(r, &encoded, "nc", &ctx->nc);
-    missing += ngx_http_auth_digest_decode_auth(r, &encoded, "uri", &ctx->uri);
-    missing += ngx_http_auth_digest_decode_auth(r, &encoded, "cnonce", &ctx->cnonce);
-    missing += ngx_http_auth_digest_decode_auth(r, &encoded, "response", &ctx->response);
-    ngx_http_auth_digest_decode_auth(r, &encoded, "opaque", &ctx->opaque); // (optional/ignored)
+    /*
+       token          = 1*<any CHAR except CTLs or separators>
+       separators     = "(" | ")" | "<" | ">" | "@"
+                      | "," | ";" | ":" | "\" | <">
+                      | "/" | "[" | "]" | "?" | "="
+                      | "{" | "}" | SP | HT
+    */
+
+    static uint32_t token_char[] = {
+      0x00000000, /* 0000 0000 0000 0000  0000 0000 0000 0000 */
+
+                  /* ?>=< ;:98 7654 3210  /.-, +*)( '&%$ #"!  */
+      0x03ff6cf8, /* 0000 0011 1111 1111  0110 1100 1111 1000 */
+
+                  /* _^]\ [ZYX WVUT SRQP  ONML KJIH GFED CBA@ */
+      0xc7fffffe, /* 1100 0111 1111 1111  1111 1111 1111 1110 */
+
+                  /*  ~}| {zyx wvut srqp  onml kjih gfed cba` */
+      0x57ffffff, /* 0101 0111 1111 1111  1111 1111 1111 1111 */
+
+      0x00000000, /* 0000 0000 0000 0000  0000 0000 0000 0000 */
+      0x00000000, /* 0000 0000 0000 0000  0000 0000 0000 0000 */
+      0x00000000, /* 0000 0000 0000 0000  0000 0000 0000 0000 */
+      0x00000000, /* 0000 0000 0000 0000  0000 0000 0000 0000 */
+    };
+
+    u_char      ch, *p, *last, *start, *end;
+    ngx_str_t   name, value;
+    ngx_int_t   comma_count, quoted_pair_count;
+
+    enum {
+        sw_start = 0,
+        sw_scheme,
+        sw_scheme_end,
+        sw_lws_start,
+        sw_lws,
+        sw_param_name_start,
+        sw_param_name,
+        sw_param_value_start,
+        sw_param_value,
+        sw_param_quoted_value,
+        sw_param_end,
+        sw_error,
+    } state;
+
+
+    ngx_str_t encoded = r->headers_in.authorization->value;
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "encoded=%*s", encoded.len, encoded.data);
+
+    state = sw_start;
+    p     = encoded.data;
+    last  = encoded.data + encoded.len;
+
+    ch = *p++;
+
+    while (p <= last) {
+      //ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "state=%d, p=%p, ch=%c", state, p, ch);
+
+      switch (state) {
+      default:
+      case sw_error:
+        return NGX_DECLINED;
+
+      /* first char */
+      case sw_start:
+        if (ch == CR || ch == LF || ch == ' ' || ch == '\t') {
+          ch = *p++;
+        }
+        else if (token_char[ch >> 5] & (1 << (ch & 0x1f))) {
+          start = p - 1;
+          state = sw_scheme;
+        }
+        else {
+          state = sw_error;
+        }
+        break;
+
+      case sw_scheme:
+        if (token_char[ch >> 5] & (1 << (ch & 0x1f))) {
+          ch = *p++;
+        }
+        else if (ch == ' ') {
+          end = p - 1;
+          state = sw_scheme_end;
+
+          ctx->auth_scheme.data = start;
+          ctx->auth_scheme.len  = end - start;
+          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "scheme=%*s", end - start, start);
+
+          if (ngx_strncasecmp(ctx->auth_scheme.data, (u_char *) "Digest", ctx->auth_scheme.len) != 0) {
+            state = sw_error;
+          }
+        }
+        else {
+          state = sw_error;
+        }
+        break;
+
+      case sw_scheme_end:
+        if (ch == ' ') {
+          ch = *p++;
+        }
+        else {
+          state = sw_param_name_start;
+        }
+        break;
+
+      case sw_lws_start:
+        comma_count = 0;
+        state = sw_lws;
+
+        /* fall through */
+      case sw_lws:
+        if (comma_count > 0 && (token_char[ch >> 5] & (1 << (ch & 0x1f)))) {
+          state = sw_param_name_start;
+        }
+        else if (ch == ',' ) {
+          comma_count++;
+          ch = *p++;
+        }
+        else if (ch == CR || ch == LF || ch == ' ' || ch == '\t') {
+          ch = *p++;
+        }
+        else {
+          state = sw_error;
+        }
+        break;
+
+      case sw_param_name_start:
+        if (token_char[ch >> 5] & (1 << (ch & 0x1f))) {
+          start = p - 1;
+          state = sw_param_name;
+          ch = *p++;
+        }
+        else {
+          state = sw_error;
+        }
+        break;
+
+      case sw_param_name:
+        if (token_char[ch >> 5] & (1 << (ch & 0x1f))) {
+          ch = *p++;
+        }
+        else if (ch == '=') {
+          end = p - 1;
+          state = sw_param_value_start;
+
+          name.data = start;
+          name.len  = end - start;
+
+          ch = *p++;
+        }
+        else {
+          state = sw_error;
+        }
+        break;
+
+      case sw_param_value_start:
+        if (token_char[ch >> 5] & (1 << (ch & 0x1f))) {
+          start = p - 1;
+          state = sw_param_value;
+          ch = *p++;
+        }
+        else if (ch == '\"') {
+          start = p;
+          quoted_pair_count = 0;
+          state = sw_param_quoted_value;
+          ch = *p++;
+        }
+        else {
+          state = sw_error;
+        }
+        break;
+
+      case sw_param_value:
+        if (token_char[ch >> 5] & (1 << (ch & 0x1f))) {
+          ch = *p++;
+        }
+        else {
+          end = p - 1;
+          value.data = start;
+          value.len  = end - start;
+          state = sw_param_end;
+        }
+        break;
+
+      case sw_param_quoted_value:
+        if (ch < 0x20 || ch == 0x7f) {
+          state = sw_error;
+        }
+        else if (ch == '\\' && *p <= 0x7f) {
+          quoted_pair_count++;
+          ch = *(p += 2);
+        }
+        else if (ch == '\"') {
+          end = p - 1;
+          ch = *p++;
+          value.data = start;
+          value.len  = end - start - quoted_pair_count;
+          if (quoted_pair_count > 0) {
+            value.data = ngx_palloc(r->pool, value.len);
+            u_char *d = value.data;
+            for (u_char *s = start; s < end; s++) {
+              ch = *s;
+              if (ch == '\\') continue;
+              *d++ = ch;
+            }
+          }
+          state = sw_param_end;
+          goto param_end;
+        }
+        else {
+          ch = *p++;          
+        }
+        break;
+
+      param_end:
+      case sw_param_end:
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "name=%*s, value=%*s", name.len, name.data, value.len, value.data);
+
+        if (ngx_strncasecmp(name.data, (u_char *) "username", name.len) == 0) {
+          ctx->username = value;
+        }
+        else if (ngx_strncasecmp(name.data, (u_char *) "qop", name.len) == 0) {
+          ctx->qop = value;
+        }
+        else if (ngx_strncasecmp(name.data, (u_char *) "realm", name.len) == 0) {
+          ctx->realm = value;
+        }
+        else if (ngx_strncasecmp(name.data, (u_char *) "nonce", name.len) == 0) {
+          ctx->nonce = value;
+        }
+        else if (ngx_strncasecmp(name.data, (u_char *) "nc", name.len) == 0) {
+          ctx->nc = value;
+        }
+        else if (ngx_strncasecmp(name.data, (u_char *) "uri", name.len) == 0) {
+          ctx->uri = value;
+        }
+        else if (ngx_strncasecmp(name.data, (u_char *) "cnonce", name.len) == 0) {
+          ctx->cnonce = value;
+        }
+        else if (ngx_strncasecmp(name.data, (u_char *) "response", name.len) == 0) {
+          ctx->response = value;
+        }
+        else if (ngx_strncasecmp(name.data, (u_char *) "opaque", name.len) == 0) {
+          ctx->opaque = value;
+        }
+        else if (ngx_strncasecmp(name.data, (u_char *) "algorithm", name.len) == 0) {
+          ctx->algorithm = value;
+        }
+
+        state = sw_lws_start;
+        break;
+      }
+    }
+
+    if (state != sw_lws_start && state != sw_lws) {
+      return NGX_DECLINED;      
+    }
 
     // bail out if anything but the opaque field is missing from the request header
-    if (missing>0 || ctx->nonce.len!=17) return NGX_DECLINED;
+    if (!(ctx->username.len > 0 && ctx->qop.len > 0 && ctx->realm.len > 0 && ctx->nonce.len > 0
+          && ctx->nc.len > 0 && ctx->uri.len > 0 && ctx->cnonce.len > 0 && ctx->response.len > 0)
+      || ctx->nonce.len!=16)
+    {
+      return NGX_DECLINED;
+    }
 
     return NGX_OK;
-}
-
-static ngx_inline ngx_int_t 
-ngx_http_auth_digest_decode_auth(ngx_http_request_t *r, ngx_str_t *auth_str, char *field_name, ngx_str_t *field_val){
-  ngx_str_t key;
-  u_char *start, *last;
-
-  key.len = ngx_strlen(field_name) + 2;
-  key.data = ngx_pcalloc(r->pool, key.len);
-  (void) ngx_sprintf(key.data,"%s=", field_name);
-  
-  start = (u_char *) ngx_strstr(auth_str->data, key.data);
-  if (start==NULL){
-    field_val->len = 1;
-    field_val->data = ngx_pcalloc(r->pool, 1);
-    return 1;
-  }
-  
-  start += key.len-1;
-  if (*start=='"'){
-    start++;
-    last = (u_char *) ngx_strstr(start+1, "\"");
-  }else{
-    last = (u_char *) ngx_strstr(start+1, ",");
-  }
-  if (last==NULL) last = auth_str->data + auth_str->len;
-  if (last>start){        
-    field_val->len = last-start + 1;
-    field_val->data = ngx_pcalloc(r->pool, field_val->len);
-    (void) ngx_cpymem(field_val->data, start, last-start);
-  }
-  
-  return 0;
 }
 
 static ngx_int_t

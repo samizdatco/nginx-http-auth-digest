@@ -13,6 +13,7 @@ typedef struct {
 
 // contents of the request's authorization header
 typedef struct { 
+  ngx_str_t auth_scheme;
   ngx_str_t username;
   ngx_str_t realm;
   ngx_str_t nonce;
@@ -23,6 +24,7 @@ typedef struct {
   ngx_str_t response;
   ngx_str_t opaque;
   ngx_int_t stale;
+  ngx_str_t algorithm;
 } ngx_http_auth_digest_cred_t;
 
 // the nonce as an issue-time/random-num pair
