@@ -569,10 +569,10 @@ ngx_http_auth_digest_verify_user(ngx_http_request_t *r, ngx_http_auth_digest_cre
       case sw_login:
         if (ch=='#') nomatch = 1;
         if (ch==':'){
-          if (fields->username.len-1 != i) nomatch = 1;
+          if (fields->username.len != i) nomatch = 1;
           state=sw_realm;
           from=i+1;
-        }else if (i>fields->username.len-1 || ch != fields->username.data[i]){
+        }else if (i>fields->username.len || ch != fields->username.data[i]){
           nomatch = 1;
         }
         break;
@@ -580,7 +580,7 @@ ngx_http_auth_digest_verify_user(ngx_http_request_t *r, ngx_http_auth_digest_cre
       case sw_realm:
         if (ch=='#') nomatch = 1;
         if (ch==':'){
-          if (fields->realm.len-1 != i-from) nomatch = 1; 
+          if (fields->realm.len != i-from) nomatch = 1; 
           state=sw_ha1;
           from=i+1;
         }else if (ch != fields->realm.data[i-from]){
@@ -639,15 +639,15 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   ngx_hex_dump(HA2.data, hash, 16);
   
   // calculate digest: md5(ha1:nonce:nc:cnonce:qop:ha2)
-  digest_key.len = HA1.len-1 + fields->nonce.len-1 + fields->nc.len-1 + fields->cnonce.len-1 + fields->qop.len-1 + HA2.len-1 + 5 + 1;
+  digest_key.len = HA1.len-1 + fields->nonce.len + fields->nc.len + fields->cnonce.len + fields->qop.len + HA2.len-1 + 5 + 1;
   digest_key.data = ngx_pcalloc(r->pool, digest_key.len);
   if (digest_key.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
   
   p = ngx_cpymem(digest_key.data, HA1.data, HA1.len-1); *p++ = ':';  
-  p = ngx_cpymem(p, fields->nonce.data, fields->nonce.len-1); *p++ = ':';
-  p = ngx_cpymem(p, fields->nc.data, fields->nc.len-1); *p++ = ':';
-  p = ngx_cpymem(p, fields->cnonce.data, fields->cnonce.len-1); *p++ = ':';
-  p = ngx_cpymem(p, fields->qop.data, fields->qop.len-1); *p++ = ':';
+  p = ngx_cpymem(p, fields->nonce.data, fields->nonce.len); *p++ = ':';
+  p = ngx_cpymem(p, fields->nc.data, fields->nc.len); *p++ = ':';
+  p = ngx_cpymem(p, fields->cnonce.data, fields->cnonce.len); *p++ = ':';
+  p = ngx_cpymem(p, fields->qop.data, fields->qop.len); *p++ = ':';
   p = ngx_cpymem(p, HA2.data, HA2.len-1);  
 
   digest.len = 33;
@@ -660,7 +660,7 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
 
   // compare the hash of the full digest string to the response field of the auth header
   // and bail out if they don't match
-  if (ngx_strcmp(digest.data, fields->response.data) != 0) return NGX_DECLINED;
+  if (ngx_strncmp(digest.data, fields->response.data, fields->response.len) != 0) return NGX_DECLINED;
   
   ngx_http_auth_digest_nonce_t     nonce;
   ngx_uint_t                       key;
@@ -677,7 +677,7 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   key = ngx_crc32_short((u_char *) &nonce.rnd, sizeof nonce.rnd) ^
         ngx_crc32_short((u_char *) &nonce.t, sizeof(nonce.t));
 
-  int nc = ngx_atoi(fields->nc.data, fields->nc.len-1);
+  int nc = ngx_atoi(fields->nc.data, fields->nc.len);
   if (nc<0 || nc>=alcf->replays){ 
     fields->stale = 1;    
     return NGX_DECLINED; 
@@ -719,10 +719,10 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
 
     ngx_memset(digest_key.data, 0, digest_key.len);
     p = ngx_cpymem(digest_key.data, HA1.data, HA1.len-1); *p++ = ':';  
-    p = ngx_cpymem(p, fields->nonce.data, fields->nonce.len-1); *p++ = ':';
-    p = ngx_cpymem(p, fields->nc.data, fields->nc.len-1); *p++ = ':';
-    p = ngx_cpymem(p, fields->cnonce.data, fields->cnonce.len-1); *p++ = ':';
-    p = ngx_cpymem(p, fields->qop.data, fields->qop.len-1); *p++ = ':';
+    p = ngx_cpymem(p, fields->nonce.data, fields->nonce.len); *p++ = ':';
+    p = ngx_cpymem(p, fields->nc.data, fields->nc.len); *p++ = ':';
+    p = ngx_cpymem(p, fields->cnonce.data, fields->cnonce.len); *p++ = ':';
+    p = ngx_cpymem(p, fields->qop.data, fields->qop.len); *p++ = ':';
     p = ngx_cpymem(p, HA2.data, HA2.len-1);  
 
     ngx_md5_init(&md5);
