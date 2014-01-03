@@ -677,7 +677,7 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   key = ngx_crc32_short((u_char *) &nonce.rnd, sizeof nonce.rnd) ^
         ngx_crc32_short((u_char *) &nonce.t, sizeof(nonce.t));
 
-  int nc = ngx_atoi(fields->nc.data, fields->nc.len);
+  int nc = ngx_hextoi(fields->nc.data, fields->nc.len);
   if (nc<0 || nc>=alcf->replays){ 
     fields->stale = 1;    
     return NGX_DECLINED; 
