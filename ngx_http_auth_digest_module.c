@@ -734,7 +734,7 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
     hval.len = sizeof("qop=\"auth\", rspauth=\"\", cnonce=\"\", nc=") + fields->cnonce.len + fields->nc.len + digest.len;
     hval.data = ngx_pcalloc(r->pool, hval.len);
     if (hval.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    p = ngx_sprintf(hval.data, "qop=\"auth\", rspauth=\"%s\", cnonce=\"%s\", nc=%s", digest.data, fields->cnonce.data, fields->nc.data);
+    p = ngx_sprintf(hval.data, "qop=\"auth\", rspauth=\"%s\", cnonce=\"%*s\", nc=%*s", digest.data, fields->cnonce.len, fields->cnonce.data, fields->nc.len, fields->nc.data);
     
     info_header = ngx_list_push(&r->headers_out.headers);
     if (info_header == NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;    
