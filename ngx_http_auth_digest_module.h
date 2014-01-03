@@ -6,6 +6,7 @@ typedef struct {
     ngx_str_t                 realm;
     time_t                    timeout;
     time_t                    expires;
+    time_t                    drop_time;
     ngx_int_t                 replays;
     ngx_http_complex_value_t  user_file;
     ngx_str_t                 cache_dir;
@@ -37,6 +38,7 @@ typedef struct {
 typedef struct { 
     ngx_rbtree_node_t node;    // the node's .key is derived from the nonce val
     time_t            expires; // time at which the node should be evicted
+    time_t            drop_time;
     char              nc[0];   // bitvector of used nc values to prevent replays
 } ngx_http_auth_digest_node_t;
 
@@ -140,6 +142,12 @@ static ngx_command_t  ngx_http_auth_digest_commands[] = {
       ngx_conf_set_sec_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(ngx_http_auth_digest_loc_conf_t, expires),
+      NULL },
+    { ngx_string("auth_digest_drop_time"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_sec_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_auth_digest_loc_conf_t, drop_time),
       NULL },
     { ngx_string("auth_digest_replays"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,

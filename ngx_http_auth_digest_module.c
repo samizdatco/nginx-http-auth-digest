@@ -23,6 +23,7 @@ ngx_http_auth_digest_create_loc_conf(ngx_conf_t *cf)
 
     conf->timeout = NGX_CONF_UNSET_UINT;
     conf->expires = NGX_CONF_UNSET_UINT;
+    conf->drop_time = NGX_CONF_UNSET_UINT;
     conf->replays = NGX_CONF_UNSET_UINT;
     return conf;
 }
@@ -36,6 +37,7 @@ ngx_http_auth_digest_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_sec_value(conf->timeout, prev->timeout, 60);
     ngx_conf_merge_sec_value(conf->expires, prev->expires, 10);
+    ngx_conf_merge_sec_value(conf->drop_time, prev->drop_time, 300);
     ngx_conf_merge_value(conf->replays, prev->replays, 20);
     ngx_conf_merge_str_value(conf->realm, prev->realm, "")
     if (conf->user_file.value.len == 0) {
@@ -686,12 +688,20 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   // make sure nonce and nc are both valid
   ngx_shmtx_lock(&shpool->mutex);    
   found = (ngx_http_auth_digest_node_t *)ngx_http_auth_digest_rbtree_find(key, ngx_http_auth_digest_rbtree->root, ngx_http_auth_digest_rbtree->sentinel);
-  if (found!=NULL && ngx_bitvector_test(found->nc, nc)){    
+  if (found!=NULL){
+    if (found->expires <= ngx_time()) {
+      fields->stale = 1;
+      goto invalid;
+    }
+    if (!ngx_bitvector_test(found->nc, nc)){
+      goto invalid;
+    }
     if (ngx_bitvector_test(found->nc, 0)){
       // if this is the first use of this nonce, switch the expiration time from the timeout
       // param to now+expires. using the 0th element of the nc vector to flag this...
       ngx_bitvector_set(found->nc, 0);
       found->expires = ngx_time() + alcf->expires;
+      found->drop_time = ngx_time() + alcf->drop_time;
     }
     
     // mark this nc as ‘used’ to prevent replays 
@@ -743,6 +753,7 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
     info_header->hash = 1;
     return NGX_OK;
   }else{
+  invalid:
     // nonce is invalid/expired or client reused an nc value. suspicious...
     ngx_shmtx_unlock(&shpool->mutex);
     return NGX_DECLINED;
@@ -1046,7 +1057,7 @@ static void ngx_http_auth_digest_rbtree_prune_walk(ngx_rbtree_node_t *node, ngx_
   }
   
   ngx_http_auth_digest_node_t *dnode = (ngx_http_auth_digest_node_t*) node;
-  if (dnode->expires <= ngx_time()){
+  if (dnode->drop_time <= ngx_time()){
     ngx_rbtree_node_t **dropnode = ngx_array_push(ngx_http_auth_digest_cleanup_list);
     dropnode[0] = node;
   }  
@@ -1088,6 +1099,7 @@ static ngx_http_auth_digest_nonce_t ngx_http_auth_digest_next_nonce(ngx_http_req
       return nonce;
     }
     node->expires = nonce.t + alcf->timeout;
+    node->drop_time = nonce.t + alcf->timeout;
     ngx_memset(node->nc, 0xff, ngx_bitvector_size(1+alcf->replays));
     ((ngx_rbtree_node_t *)node)->key = key;   
     ngx_rbtree_insert(ngx_http_auth_digest_rbtree, &node->node);
