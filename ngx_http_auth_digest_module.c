@@ -294,12 +294,13 @@ ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, ngx_http_auth_dige
 static ngx_inline ngx_int_t 
 ngx_http_auth_digest_decode_auth(ngx_http_request_t *r, ngx_str_t *auth_str, char *field_name, ngx_str_t *field_val){
   ngx_str_t key;
-  u_char *start, *last; //, *p;
+  u_char *start, *last, *p;
 
   key.len = ngx_strlen(field_name) + 2;
   key.data = ngx_pcalloc(r->pool, key.len);
-  // p = ngx_sprintf(key.data,"%s=", field_name);
-  
+  p = ngx_sprintf(key.data,"%s=", field_name);
+  p=p; // Suppress the unused variable warning; --CBT
+
   start = (u_char *) ngx_strstr(auth_str->data, key.data);
   if (start==NULL){
     field_val->len = 1;
