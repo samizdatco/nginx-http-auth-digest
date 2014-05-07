@@ -299,7 +299,8 @@ ngx_http_auth_digest_decode_auth(ngx_http_request_t *r, ngx_str_t *auth_str, cha
   key.len = ngx_strlen(field_name) + 2;
   key.data = ngx_pcalloc(r->pool, key.len);
   p = ngx_sprintf(key.data,"%s=", field_name);
-  
+  p=p; // Suppress the unused variable warning; --CBT
+
   start = (u_char *) ngx_strstr(auth_str->data, key.data);
   if (start==NULL){
     field_val->len = 1;
@@ -318,7 +319,7 @@ ngx_http_auth_digest_decode_auth(ngx_http_request_t *r, ngx_str_t *auth_str, cha
   if (last>start){        
     field_val->len = last-start + 1;
     field_val->data = ngx_pcalloc(r->pool, field_val->len);
-    p = ngx_cpymem(field_val->data, start, last-start);
+    // p = ngx_cpymem(field_val->data, start, last-start);
   }
   
   return 0;
