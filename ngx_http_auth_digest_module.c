@@ -479,8 +479,8 @@ ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, ngx_http_auth_dige
           if (quoted_pair_count > 0) {
             value.data = ngx_palloc(r->pool, value.len);
             u_char *d = value.data;
-            u_char *s = '';
-            for (s = start; s < end; s++) {
+            u_char *s = start;
+            for (; s < end; s++) {
               ch = *s;
               if (ch == '\\') continue;
               *d++ = ch;
