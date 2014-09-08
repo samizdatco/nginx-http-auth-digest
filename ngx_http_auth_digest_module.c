@@ -273,7 +273,6 @@ ngx_int_t
 ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, ngx_http_auth_digest_cred_t *ctx){
 
     if (r->headers_in.authorization == NULL) {
-        // ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "no auth header");
         return NGX_DECLINED;
     }
 
@@ -303,9 +302,12 @@ ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, ngx_http_auth_dige
       0x00000000, /* 0000 0000 0000 0000  0000 0000 0000 0000 */
     };
 
-    u_char      ch, *p, *last, *start, *end;
+    u_char      ch, *p, *last, *start = 0, *end;
     ngx_str_t   name, value;
-    ngx_int_t   comma_count, quoted_pair_count;
+    ngx_int_t   comma_count = 0, quoted_pair_count = 0;
+
+		name.data = 0;
+		name.len  = 0;
 
     enum {
         sw_start = 0,
@@ -324,7 +326,6 @@ ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, ngx_http_auth_dige
 
 
     ngx_str_t encoded = r->headers_in.authorization->value;
-    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "encoded=%*s", encoded.len, encoded.data);
 
     state = sw_start;
     p     = encoded.data;
@@ -333,8 +334,6 @@ ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, ngx_http_auth_dige
     ch = *p++;
 
     while (p <= last) {
-      //ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "state=%d, p=%p, ch=%c", state, p, ch);
-
       switch (state) {
       default:
       case sw_error:
@@ -364,7 +363,6 @@ ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, ngx_http_auth_dige
 
           ctx->auth_scheme.data = start;
           ctx->auth_scheme.len  = end - start;
-          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "scheme=%*s", end - start, start);
 
           if (ngx_strncasecmp(ctx->auth_scheme.data, (u_char *) "Digest", ctx->auth_scheme.len) != 0) {
             state = sw_error;
@@ -496,8 +494,6 @@ ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, ngx_http_auth_dige
 
       param_end:
       case sw_param_end:
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "name=%*s, value=%*s", name.len, name.data, value.len, value.data);
-
         if (ngx_strncasecmp(name.data, (u_char *) "username", name.len) == 0) {
           ctx->username = value;
         }
