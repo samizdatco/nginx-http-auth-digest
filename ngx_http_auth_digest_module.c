@@ -521,9 +521,6 @@ ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, ngx_http_auth_dige
         else if (ngx_strncasecmp(name.data, (u_char *) "opaque", name.len) == 0) {
           ctx->opaque = value;
         }
-        else if (ngx_strncasecmp(name.data, (u_char *) "algorithm", name.len) == 0) {
-          ctx->algorithm = value;
-        }
 
         state = sw_lws_start;
         break;

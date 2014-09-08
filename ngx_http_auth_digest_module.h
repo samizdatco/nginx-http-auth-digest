@@ -25,7 +25,6 @@ typedef struct {
   ngx_str_t response;
   ngx_str_t opaque;
   ngx_int_t stale;
-  ngx_str_t algorithm;
 } ngx_http_auth_digest_cred_t;
 
 // the nonce as an issue-time/random-num pair
