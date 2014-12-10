@@ -1,6 +1,8 @@
 #ifndef _NGX_HTTP_AUTH_DIGEST_H_INCLUDED_
 #define _NGX_HTTP_AUTH_DIGEST_H_INCLUDED_
 
+#define NGX_HTTP_AUTH_DIGEST_USERNOTFOUND      1000
+
 // the module conf
 typedef struct {
     ngx_str_t                 realm;

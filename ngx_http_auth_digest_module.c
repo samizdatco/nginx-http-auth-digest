@@ -225,6 +225,12 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
             p[0] = '\0';
             passwd_line.len = i-begin;
             rc = ngx_http_auth_digest_verify_user(r, auth_fields, &passwd_line);
+    
+            if (rc == NGX_HTTP_AUTH_DIGEST_USERNOTFOUND) {
+              ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "invalid username or password for %*s", auth_fields->username.len, auth_fields->username.data);
+              rc = NGX_DECLINED;
+            }
+    
             if (rc != NGX_DECLINED){
               ngx_http_auth_digest_close(&file);
               return rc;
@@ -245,6 +251,10 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
           p[0] = '\0';
           passwd_line.len = i-begin;
           rc = ngx_http_auth_digest_verify_user(r, auth_fields, &passwd_line);
+          if (rc == NGX_HTTP_AUTH_DIGEST_USERNOTFOUND) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "invalid username or password for %*s", auth_fields->username.len, auth_fields->username.data);
+            rc = NGX_DECLINED;
+          }
           if (rc != NGX_DECLINED){
             ngx_http_auth_digest_close(&file);
             return rc;
@@ -262,7 +272,7 @@ ngx_http_auth_digest_handler(ngx_http_request_t *r)
     }
 
     ngx_http_auth_digest_close(&file);
-    
+
     // since no match was found based on the fields in the authorization header,
     // send a new challenge and let the client retry
     return ngx_http_auth_digest_send_challenge(r, &alcf->realm, auth_fields->stale);
@@ -592,7 +602,11 @@ ngx_http_auth_digest_verify_user(ngx_http_request_t *r, ngx_http_auth_digest_cre
     }
   }
   
-  return (nomatch) ? NGX_DECLINED : ngx_http_auth_digest_verify_hash(r, fields, &buf[from]);
+  if (nomatch) {
+    return NGX_HTTP_AUTH_DIGEST_USERNOTFOUND;
+  }
+  
+  return ngx_http_auth_digest_verify_hash(r, fields, &buf[from]);
 }
 
 static ngx_int_t
