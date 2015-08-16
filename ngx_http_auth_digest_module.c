@@ -477,6 +477,7 @@ ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, ngx_http_auth_dige
         }
         else if (ch == '\\' && *p <= 0x7f) {
           quoted_pair_count++;
+          /* Skip the next char, even if it's a \ */
           ch = *(p += 2);
         }
         else if (ch == '\"') {
@@ -490,7 +491,16 @@ ngx_http_auth_digest_check_credentials(ngx_http_request_t *r, ngx_http_auth_dige
             u_char *s = start;
             for (; s < end; s++) {
               ch = *s;
-              if (ch == '\\') continue;
+              if (ch == '\\') {
+                /* Make sure to add the next character
+                 * even if it's a \
+                 */
+                s++;
+                if (s < end) {
+                  *d++ = ch;
+                }
+                continue;
+              }
               *d++ = ch;
             }
           }
