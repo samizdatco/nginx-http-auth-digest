@@ -2,6 +2,17 @@
 Nginx Digest Authentication module
 ==================================
 
+Changes from other forks
+========================
+Bug fixes
+`1 <https://github.com/atomx/nginx-http-auth-digest/commit/9d77dcc58420d5afb8aa5a8138b1bf22a1933dd6>`_, 
+`2 <https://github.com/atomx/nginx-http-auth-digest/commit/b98725d3d0506c895f6a9f9d38f9168d499275fc>`_,
+`3 <https://github.com/atomx/nginx-http-auth-digest/commit/47d5bac13cf071b4dbe81048b0f12a742ba512ae>`_
+
+`Added log message for invalid login attempts <https://github.com/atomx/nginx-http-auth-digest/commit/9a402045082291c1f2f0a432ac24475277e2d176>`_
+
+Description
+===========
 The ``ngx_http_auth_digest`` module supplements Nginx_'s built-in Basic Authentication `module`_ by providing support for `RFC`_ 2617 `Digest Authentication`_. The module is currently functional but has only been tested and reviewed by its author. And given that this is security code, one set of eyes is almost certainly insufficient to guarantee that it's 100% correct. Until a few bug reports come in and some of the ‘unknown unknowns’ in the code are flushed out, consider this module an ‘alpha’ and treat it with the appropriate amount of skepticism.
 
 A listing of known issues with the module can be found in the ``bugs.txt`` file as well as in the `Issue Tracker`_. Please do consider contributing a patch if you have the time and inclination. Any help fixing the bugs or changing the implementation to a more idiomatically nginx-y one would be greatly appreciated.
