@@ -643,7 +643,7 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, ngx_http_auth_digest_cre
   http_method.len = r->method_name.len+1;
   http_method.data = ngx_pcalloc(r->pool, http_method.len);
   if (http_method.data==NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
-  p = ngx_cpymem(http_method.data, r->method_name.data, r->method_end - r->method_name.data+1);
+  p = ngx_cpymem(http_method.data, r->method_name.data, r->method_name.len);
   
   ha2_key.len = http_method.len + r->unparsed_uri.len + 1;
   ha2_key.data = ngx_pcalloc(r->pool, ha2_key.len);
