@@ -150,6 +150,25 @@ auth_digest_replays
   value will cause a proportional increase in memory usage and the shm_size may have to be
   adjusted to keep up with heavy traffic within the digest-protected location blocks.
 
+auth_digest_evasion_time
+~~~~~~~~~~~~~~~~~~~~~~~~
+:Syntax: ``auth_digest_evasion_time`` *time-in-seconds*
+:Default: ``300s``
+:Context: server, location
+:Description:
+  The amount of time for which the server will ignore authentication requests from a client
+  address once the number of failed authentications from that client reaches ``auth_digest_maxtries``.
+
+auth_digest_maxtries
+~~~~~~~~~~~~~~~~~~~~
+:Syntax: ``auth_digest_maxtries`` *number-of-attempts*
+:Default: ``5``
+:Context: server, location
+:Description:
+  The number of failed authentication attempts from a client address before the module enters
+  evasive tactics. For evasion purposes, only network clients are tracked, and only by address
+  (not including port number).  A successful authentication clears the counters.
+
 auth_digest_shm_size
 ~~~~~~~~~~~~~~~~~~~~
 :Syntax: ``auth_digest_shm_size`` *size-in-bytes*

@@ -9,7 +9,9 @@ typedef struct {
     time_t                    timeout;
     time_t                    expires;
     time_t                    drop_time;
+    time_t                    evasion_time;
     ngx_int_t                 replays;
+    ngx_int_t                 maxtries;
     ngx_http_complex_value_t  user_file;
     ngx_str_t                 cache_dir;
 } ngx_http_auth_digest_loc_conf_t;
@@ -43,6 +45,15 @@ typedef struct {
     char              nc[0];   // bitvector of used nc values to prevent replays
 } ngx_http_auth_digest_node_t;
 
+// evasion entries in the rbtree
+typedef struct {
+    ngx_rbtree_node_t node;    // the node's .key is derived from the source address
+    time_t            drop_time;
+    ngx_int_t         failcount;
+    struct sockaddr   src_addr;
+    socklen_t         src_addrlen;
+} ngx_http_auth_digest_ev_node_t;
+
 // the main event
 static ngx_int_t ngx_http_auth_digest_handler(ngx_http_request_t *r);
 
@@ -63,10 +74,11 @@ static ngx_int_t ngx_http_auth_digest_verify_user(ngx_http_request_t *r,
 static ngx_int_t ngx_http_auth_digest_verify_hash(ngx_http_request_t *r, 
                      ngx_http_auth_digest_cred_t *fields, u_char *hashed_pw);
 
-// the shm segment that houses the used-nonces tree
+// the shm segment that houses the used-nonces tree and evasion rbtree
 static ngx_uint_t      ngx_http_auth_digest_shm_size;
 static ngx_shm_zone_t *ngx_http_auth_digest_shm_zone;
 static ngx_rbtree_t   *ngx_http_auth_digest_rbtree;
+static ngx_rbtree_t   *ngx_http_auth_digest_ev_rbtree;
 static char *ngx_http_auth_digest_set_shm_size(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static ngx_int_t ngx_http_auth_digest_init_shm_zone(ngx_shm_zone_t *shm_zone, void *data);
 
@@ -84,9 +96,23 @@ void ngx_http_auth_digest_cleanup(ngx_event_t *e);
 static void ngx_http_auth_digest_rbtree_prune(ngx_log_t *log);
 static void ngx_http_auth_digest_rbtree_prune_walk(ngx_rbtree_node_t *node, 
                 ngx_rbtree_node_t *sentinel, time_t now, ngx_log_t *log);
+static void ngx_http_auth_digest_ev_rbtree_prune(ngx_log_t *log);
+static void ngx_http_auth_digest_ev_rbtree_prune_walk(ngx_rbtree_node_t *node,
+                ngx_rbtree_node_t *sentinel, time_t now, ngx_log_t *log);
+
+// evasive tactics functions
+static int ngx_http_auth_digest_srcaddr_key(struct sockaddr *sa, socklen_t len, ngx_uint_t *key);
+static int ngx_http_auth_digest_srcaddr_cmp(struct sockaddr *sa1, socklen_t len1, struct sockaddr *sa2, socklen_t len2);
+static ngx_http_auth_digest_ev_node_t *ngx_http_auth_digest_ev_rbtree_find(ngx_http_auth_digest_ev_node_t *this, ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
+#define NGX_HTTP_AUTH_DIGEST_STATUS_SUCCESS 1
+#define NGX_HTTP_AUTH_DIGEST_STATUS_FAILURE 0
+static void ngx_http_auth_digest_evasion_tracking(ngx_http_request_t *r, ngx_http_auth_digest_loc_conf_t *alcf, ngx_int_t status);
+static int ngx_http_auth_digest_evading(ngx_http_request_t *r, ngx_http_auth_digest_loc_conf_t *alcf);
 
 // rbtree primitives
 static void ngx_http_auth_digest_rbtree_insert(ngx_rbtree_node_t *temp,
+                ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
+static void ngx_http_auth_digest_ev_rbtree_insert(ngx_rbtree_node_t *temp,
                 ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
 static void ngx_rbtree_generic_insert(ngx_rbtree_node_t *temp,
                 ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel,
@@ -148,11 +174,23 @@ static ngx_command_t  ngx_http_auth_digest_commands[] = {
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(ngx_http_auth_digest_loc_conf_t, drop_time),
       NULL },
+    { ngx_string("auth_digest_evasion_time"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_sec_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_auth_digest_loc_conf_t, evasion_time),
+      NULL },
     { ngx_string("auth_digest_replays"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(ngx_http_auth_digest_loc_conf_t, replays),
+      NULL },
+    { ngx_string("auth_digest_maxtries"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_num_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_auth_digest_loc_conf_t, maxtries),
       NULL },
     { ngx_string("auth_digest_shm_size"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
