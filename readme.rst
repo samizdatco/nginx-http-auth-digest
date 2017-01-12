@@ -31,7 +31,7 @@ Building
 
 2. Unpack the sources for the digest module::
 
-    $ tar xzvf samizdatco-nginx-http-auth-digest-xxxxxxx.tar.gz
+    $ tar xzvf atomx-nginx-http-auth-digest-xxxxxxx.tar.gz
 
 3. Change to the directory which contains the Nginx_ sources, run the
    configuration script with the desired options and be sure to put an
@@ -39,7 +39,7 @@ Building
    of the digest module::
 
     $ cd nginx-1.0.x
-    $ ./configure --add-module=../samizdatco-nginx-http-auth-digest-xxxxxxx  [other configure options]
+    $ ./configure --add-module=../atomx-nginx-http-auth-digest-xxxxxxx  [other configure options]
 
 4. Build and install the software::
 
@@ -187,8 +187,8 @@ auth_digest_shm_size
 
 .. _nginx: http://nginx.net
 .. _module: http://wiki.nginx.org/HttpAuthBasicModule
-.. _htdigest.py: https://github.com/samizdatco/nginx-http-auth-digest/blob/master/htdigest.py
+.. _htdigest.py: https://github.com/atomx/nginx-http-auth-digest/blob/master/htdigest.py
 .. _RFC: http://www.ietf.org/rfc/rfc2617.txt
 .. _Digest Authentication: http://en.wikipedia.org/wiki/Digest_access_authentication
-.. _Issue Tracker: https://github.com/samizdatco/nginx-http-auth-digest/issues
+.. _Issue Tracker: https://github.com/atomx/nginx-http-auth-digest/issues
 .. _MitM: http://en.wikipedia.org/wiki/Man-in-the-middle_attack
