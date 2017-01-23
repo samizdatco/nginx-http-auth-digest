@@ -811,6 +811,7 @@ static ngx_int_t ngx_http_auth_digest_send_challenge(ngx_http_request_t *r,
                                                      ngx_uint_t is_stale) {
   ngx_str_t challenge;
   u_char *p;
+  size_t realm_len = strnlen((const char *)realm->data, realm->len);
 
   r->headers_out.www_authenticate = ngx_list_push(&r->headers_out.headers);
   if (r->headers_out.www_authenticate == NULL) {
@@ -822,7 +823,7 @@ static ngx_int_t ngx_http_auth_digest_send_challenge(ngx_http_request_t *r,
 
   challenge.len =
       sizeof("Digest algorithm=\"MD5\", qop=\"auth\", realm=\"\", nonce=\"\"") -
-      1 + realm->len + 16;
+      1 + realm_len + 16;
   if (is_stale)
     challenge.len += sizeof(", stale=\"true\"") - 1;
   challenge.data = ngx_pnalloc(r->pool, challenge.len);
@@ -840,7 +841,7 @@ static ngx_int_t ngx_http_auth_digest_send_challenge(ngx_http_request_t *r,
   p = ngx_cpymem(
       challenge.data, "Digest algorithm=\"MD5\", qop=\"auth\", realm=\"",
       sizeof("Digest algorithm=\"MD5\", qop=\"auth\", realm=\"") - 1);
-  p = ngx_cpymem(p, realm->data, realm->len);
+  p = ngx_cpymem(p, realm->data, realm_len);
   p = ngx_cpymem(p, "\", nonce=\"", sizeof("\", nonce=\"") - 1);
   p = ngx_sprintf(p, "%08xl%08xl", nonce.rnd, nonce.t);
 
