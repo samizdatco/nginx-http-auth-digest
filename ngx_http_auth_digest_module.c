@@ -624,6 +624,27 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r,
   ngx_md5_t md5;
   u_char hash[16];
 
+  // The .net Http library sends the incorrect URI as part of the Authorization
+  // response. Instead of the complete URI including the query parameters it
+  // sends only the basic URI without the query parameters. It also uses this
+  // value in the calculations.
+  // To be compatible with the .net library the following change is made to this
+  // module:
+  // - Compare the URI in the Authorization (A-URI) with the request URI (R-URI).
+  // - If A-URI and R-URI are identical verify is executed.
+  // - If A-URI and R-URI are identical up to the '?' verify is executed
+  // - Otherwise the check is not executed and authorization is declined
+  if (!((r->unparsed_uri.len == fields->uri.len) &&
+        (ngx_strncmp(r->unparsed_uri.data, fields->uri.data, fields->uri.len) == 0)))
+  { 
+    if (!((r->unparsed_uri.len > fields->uri.len) &&
+          (ngx_strncmp(r->unparsed_uri.data, fields->uri.data, fields->uri.len) == 0) &&
+          (r->unparsed_uri.data[fields->uri.len] == '?')))
+    {
+      return NGX_DECLINED; 
+    }
+  }
+  
   //  the hashing scheme:
   //    digest:
   //    MD5(MD5(username:realm:password):nonce:nc:cnonce:qop:MD5(method:uri))
@@ -644,13 +665,13 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r,
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
   p = ngx_cpymem(http_method.data, r->method_name.data, r->method_name.len);
 
-  ha2_key.len = http_method.len + r->unparsed_uri.len + 1;
+  ha2_key.len = http_method.len + fields->uri.len + 1;
   ha2_key.data = ngx_pcalloc(r->pool, ha2_key.len);
   if (ha2_key.data == NULL)
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
   p = ngx_cpymem(ha2_key.data, http_method.data, http_method.len - 1);
   *p++ = ':';
-  p = ngx_cpymem(p, r->unparsed_uri.data, r->unparsed_uri.len);
+  p = ngx_cpymem(p, fields->uri.data, fields->uri.len);
 
   HA2.len = 33;
   HA2.data = ngx_pcalloc(r->pool, HA2.len);
@@ -752,12 +773,12 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r,
     // the
     // Authentication-Info header
     ngx_memset(ha2_key.data, 0, ha2_key.len);
-    p = ngx_snprintf(ha2_key.data, 1 + r->unparsed_uri.len, ":%s",
-                     r->unparsed_uri.data);
+    p = ngx_snprintf(ha2_key.data, 1 + fields->uri.len, ":%s",
+                     fields->uri.data);
 
     ngx_memset(HA2.data, 0, HA2.len);
     ngx_md5_init(&md5);
-    ngx_md5_update(&md5, ha2_key.data, 1 + r->unparsed_uri.len);
+    ngx_md5_update(&md5, ha2_key.data, 1 + fields->uri.len);
     ngx_md5_final(hash, &md5);
     ngx_hex_dump(HA2.data, hash, 16);
 
