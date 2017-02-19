@@ -809,7 +809,7 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r,
     if (hval.data == NULL)
       return NGX_HTTP_INTERNAL_SERVER_ERROR;
     p = ngx_snprintf(hval.data, hval.len,
-                     "qop=\"auth\", rspauth=\"%*s\", cnonce=\"%*s\", nc=%*s",
+                     "qop=\"auth\", rspauth=\"%*s\", cnonce=\"%*s\", nc=\"%*s\"",
                      digest.len - 1, digest.data, fields->cnonce.len,
                      fields->cnonce.data, fields->nc.len, fields->nc.data);
     info_header = ngx_list_push(&r->headers_out.headers);
