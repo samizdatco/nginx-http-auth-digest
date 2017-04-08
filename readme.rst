@@ -5,11 +5,11 @@ Nginx Digest Authentication module
 Changes from other forks
 ========================
 Bug fixes
-`1 <https://github.com/atomx/nginx-http-auth-digest/commit/9d77dcc58420d5afb8aa5a8138b1bf22a1933dd6>`_, 
-`2 <https://github.com/atomx/nginx-http-auth-digest/commit/b98725d3d0506c895f6a9f9d38f9168d499275fc>`_,
-`3 <https://github.com/atomx/nginx-http-auth-digest/commit/47d5bac13cf071b4dbe81048b0f12a742ba512ae>`_
+`1 <https://github.com/samizdatco/nginx-http-auth-digest/commit/9d77dcc58420d5afb8aa5a8138b1bf22a1933dd6>`_, 
+`2 <https://github.com/samizdatco/nginx-http-auth-digest/commit/b98725d3d0506c895f6a9f9d38f9168d499275fc>`_,
+`3 <https://github.com/samizdatco/nginx-http-auth-digest/commit/47d5bac13cf071b4dbe81048b0f12a742ba512ae>`_
 
-`Added log message for invalid login attempts <https://github.com/atomx/nginx-http-auth-digest/commit/9a402045082291c1f2f0a432ac24475277e2d176>`_
+`Added log message for invalid login attempts <https://github.com/samizdatco/nginx-http-auth-digest/commit/9a402045082291c1f2f0a432ac24475277e2d176>`_
 
 Description
 ===========
@@ -31,7 +31,7 @@ Building
 
 2. Unpack the sources for the digest module::
 
-    $ tar xzvf atomx-nginx-http-auth-digest-xxxxxxx.tar.gz
+    $ tar xzvf samizdatco-nginx-http-auth-digest-xxxxxxx.tar.gz
 
 3. Change to the directory which contains the Nginx_ sources, run the
    configuration script with the desired options and be sure to put an
@@ -39,7 +39,7 @@ Building
    of the digest module::
 
     $ cd nginx-1.0.x
-    $ ./configure --add-module=../atomx-nginx-http-auth-digest-xxxxxxx  [other configure options]
+    $ ./configure --add-module=../samizdatco-nginx-http-auth-digest-xxxxxxx  [other configure options]
 
 4. Build and install the software::
 
@@ -187,8 +187,8 @@ auth_digest_shm_size
 
 .. _nginx: http://nginx.net
 .. _module: http://wiki.nginx.org/HttpAuthBasicModule
-.. _htdigest.py: https://github.com/atomx/nginx-http-auth-digest/blob/master/htdigest.py
+.. _htdigest.py: https://github.com/samizdatco/nginx-http-auth-digest/blob/master/htdigest.py
 .. _RFC: http://www.ietf.org/rfc/rfc2617.txt
 .. _Digest Authentication: http://en.wikipedia.org/wiki/Digest_access_authentication
-.. _Issue Tracker: https://github.com/atomx/nginx-http-auth-digest/issues
+.. _Issue Tracker: https://github.com/samizdatco/nginx-http-auth-digest/issues
 .. _MitM: http://en.wikipedia.org/wiki/Man-in-the-middle_attack
