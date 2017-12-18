@@ -321,6 +321,7 @@ ngx_http_auth_digest_check_credentials(ngx_http_request_t *r,
       0x00000000, /* 0000 0000 0000 0000  0000 0000 0000 0000 */
   };
 
+  uint32_t in_value;
   u_char ch, *p, *last, *start = 0, *end;
   ngx_str_t name, value;
   ngx_int_t comma_count = 0, quoted_pair_count = 0;
@@ -458,13 +459,17 @@ ngx_http_auth_digest_check_credentials(ngx_http_request_t *r,
       break;
 
     case sw_param_value:
-      if (token_char[ch >> 5] & (1 << (ch & 0x1f))) {
+      in_value = token_char[ch >> 5] & (1 << (ch & 0x1f));
+      if (in_value) {
         ch = *p++;
-      } else {
+      }
+
+      if (!in_value || p > last) {
         end = p - 1;
         value.data = start;
         value.len = end - start;
         state = sw_param_end;
+        goto param_end;
       }
       break;
 
@@ -845,8 +850,9 @@ static ngx_int_t ngx_http_auth_digest_send_challenge(ngx_http_request_t *r,
   challenge.len =
       sizeof("Digest algorithm=\"MD5\", qop=\"auth\", realm=\"\", nonce=\"\"") -
       1 + realm_len + 16;
-  if (is_stale)
+  if (is_stale) {
     challenge.len += sizeof(", stale=\"true\"") - 1;
+  }
   challenge.data = ngx_pnalloc(r->pool, challenge.len);
   if (challenge.data == NULL) {
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
