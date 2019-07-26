@@ -114,6 +114,7 @@ auth_digest_user_file
   included `htdigest.py`_ script). Each line of the file is a colon-separated list composed 
   of a username, realm, and md5 hash combining name, realm, and password. For example:
   ``joi:enfield:ef25e85b34208c246cfd09ab76b01db7``
+  This file needs to be readable by your nginx user!
   
 auth_digest_timeout
 ~~~~~~~~~~~~~~~~~~~
