@@ -174,6 +174,10 @@ static ngx_int_t ngx_http_auth_digest_handler(ngx_http_request_t *r) {
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
   }
 
+  if (ngx_strncmp(realm.data, auth_fields->realm.data, ngx_min(realm.len, auth_fields->realm.len)) != 0) {
+    return ngx_http_auth_digest_send_challenge(r, &realm, 0);
+  }
+
   // check for the existence of a passwd file and attempt to open it
   if (ngx_http_complex_value(r, &alcf->user_file, &user_file) != NGX_OK) {
     return NGX_ERROR;
@@ -648,15 +652,15 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r,
   // - Otherwise the check is not executed and authorization is declined
   if (!((r->unparsed_uri.len == fields->uri.len) &&
         (ngx_strncmp(r->unparsed_uri.data, fields->uri.data, fields->uri.len) == 0)))
-  { 
+  {
     if (!((r->unparsed_uri.len > fields->uri.len) &&
           (ngx_strncmp(r->unparsed_uri.data, fields->uri.data, fields->uri.len) == 0) &&
           (r->unparsed_uri.data[fields->uri.len] == '?')))
     {
-      return NGX_DECLINED; 
+      return NGX_DECLINED;
     }
   }
-  
+
   //  the hashing scheme:
   //    digest:
   //    MD5(MD5(username:realm:password):nonce:nc:cnonce:qop:MD5(method:uri))
