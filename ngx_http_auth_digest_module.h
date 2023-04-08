@@ -132,6 +132,7 @@ ngx_http_auth_digest_ev_rbtree_find(ngx_http_auth_digest_ev_node_t *this,
                                     ngx_rbtree_node_t *sentinel);
 #define NGX_HTTP_AUTH_DIGEST_STATUS_SUCCESS 1
 #define NGX_HTTP_AUTH_DIGEST_STATUS_FAILURE 0
+static size_t ngx_http_auth_digest_get_copy_size(size_t source_size, size_t dest_size);
 static void
 ngx_http_auth_digest_evasion_tracking(ngx_http_request_t *r,
                                       ngx_http_auth_digest_loc_conf_t *alcf,
