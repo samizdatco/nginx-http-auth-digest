@@ -1410,6 +1410,10 @@ static int ngx_http_auth_digest_srcaddr_cmp(struct sockaddr *sa1,
   return -999;
 }
 
+static size_t ngx_http_auth_digest_get_copy_size(size_t source_size, size_t dest_size) {
+  return (dest_size <= source_size ? dest_size : source_size);
+}
+
 static void
 ngx_http_auth_digest_evasion_tracking(ngx_http_request_t *r,
                                       ngx_http_auth_digest_loc_conf_t *alcf,
@@ -1430,7 +1434,7 @@ ngx_http_auth_digest_evasion_tracking(ngx_http_request_t *r,
   ngx_memzero(&testnode, sizeof(testnode));
   testnode.node.key = key;
   ngx_memcpy(&testnode.src_addr, r->connection->sockaddr,
-             r->connection->socklen);
+            ngx_http_auth_digest_get_copy_size(sizeof(r->connection->sockaddr), sizeof(&testnode)));
   testnode.src_addrlen = r->connection->socklen;
   node = ngx_http_auth_digest_ev_rbtree_find(
       &testnode, ngx_http_auth_digest_ev_rbtree->root,
@@ -1454,7 +1458,7 @@ ngx_http_auth_digest_evasion_tracking(ngx_http_request_t *r,
       return;
     }
     ngx_memcpy(&node->src_addr, r->connection->sockaddr,
-               r->connection->socklen);
+               ngx_http_auth_digest_get_copy_size(sizeof(r->connection->sockaddr), sizeof(&node)));
     node->src_addrlen = r->connection->socklen;
     ((ngx_rbtree_node_t *)node)->key = key;
     ngx_rbtree_insert(ngx_http_auth_digest_ev_rbtree, &node->node);
@@ -1494,7 +1498,7 @@ static int ngx_http_auth_digest_evading(ngx_http_request_t *r,
   ngx_memzero(&testnode, sizeof(testnode));
   testnode.node.key = key;
   ngx_memcpy(&testnode.src_addr, r->connection->sockaddr,
-             r->connection->socklen);
+             ngx_http_auth_digest_get_copy_size(sizeof(r->connection->sockaddr), sizeof(&testnode)));
   testnode.src_addrlen = r->connection->socklen;
 
   shpool = (ngx_slab_pool_t *)ngx_http_auth_digest_shm_zone->shm.addr;
