@@ -283,15 +283,15 @@ static ngx_int_t ngx_http_auth_digest_handler(ngx_http_request_t *r) {
 
   // log only wrong username/password,
   // not expired hash
+  // also don't activate evasion tracking unnecessarily
   int nc = ngx_hextoi(auth_fields->nc.data, auth_fields->nc.len);
   if (nc == 1) {
     ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                   "invalid username or password for %*s",
                   auth_fields->username.len, auth_fields->username.data);
+    ngx_http_auth_digest_evasion_tracking(r, alcf,
+        NGX_HTTP_AUTH_DIGEST_STATUS_FAILURE);
   }
-
-  ngx_http_auth_digest_evasion_tracking(r, alcf,
-                                        NGX_HTTP_AUTH_DIGEST_STATUS_FAILURE);
 
   // since no match was found based on the fields in the authorization header,
   // send a new challenge and let the client retry
