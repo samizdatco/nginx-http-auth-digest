@@ -836,6 +836,9 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r,
     info_header->hash = 1;
     return NGX_OK;
   } else {
+  // nonce is invalid/expired.
+  fields->stale = 1;
+  
   invalid:
     // nonce is invalid/expired or client reused an nc value. suspicious...
     ngx_shmtx_unlock(&shpool->mutex);
