@@ -1242,6 +1242,11 @@ static void ngx_http_auth_digest_rbtree_prune_walk(ngx_rbtree_node_t *node,
   if (dnode->drop_time <= ngx_time()) {
     ngx_rbtree_node_t **dropnode =
         ngx_array_push(ngx_http_auth_digest_cleanup_list);
+    if (dropnode == NULL) {
+      ngx_log_error(NGX_LOG_ERR, log, 0,
+                    "auth_digest ran out of cleanup space");
+      return;
+    }
     dropnode[0] = node;
   }
 }
@@ -1303,6 +1308,11 @@ ngx_http_auth_digest_ev_rbtree_prune_walk(ngx_rbtree_node_t *node,
   if (dnode->drop_time <= ngx_time()) {
     ngx_rbtree_node_t **dropnode =
         ngx_array_push(ngx_http_auth_digest_cleanup_list);
+    if (dropnode == NULL) {
+      ngx_log_error(NGX_LOG_ERR, log, 0,
+                    "auth_digest ran out of cleanup space");
+      return;
+    }
     dropnode[0] = node;
   }
 }
