@@ -640,6 +640,37 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r,
   ngx_md5_t md5;
   u_char hash[16];
 
+#ifdef NGX_HTTP_PROXY_CONNECT
+  if (r->method ==  NGX_HTTP_CONNECT) {
+    // CONNECT requests don't have `r->unparsed_uri` set, so the URI must be validated
+    // against server address (host & port)
+    u_char* host_end = memchr(fields->uri.data, ':', fields->uri.len);
+    if (host_end == NULL) {
+      // CONNECT requests have no default port, if `:` is not found request is considered malformed
+      return NGX_DECLINED;
+    }
+
+    size_t host_len = host_end - fields->uri.data;
+    if (!((r->connect_host.len == (host_len)) &&
+          (ngx_strncmp(r->connect_host.data, fields->uri.data,
+                       host_len) == 0))) {
+      return NGX_DECLINED;
+    }
+
+    u_char* port_start = host_end + 1;
+    u_char* uri_end = fields->uri.data + fields->uri.len;
+    if (port_start >= uri_end) {
+      // Port shold have at least 1 digit
+      return NGX_DECLINED;
+    }
+
+    size_t port_len = uri_end - port_start;
+    if (!((port_len == r->connect_port.len) &&
+          (ngx_strncmp(port_start, r->connect_port.data, ngx_min(port_len, r->connect_port.len)) == 0))) {
+      return NGX_DECLINED;
+    }
+  } else {
+#endif
   // The .net Http library sends the incorrect URI as part of the Authorization
   // response. Instead of the complete URI including the query parameters it
   // sends only the basic URI without the query parameters. It also uses this
@@ -660,6 +691,9 @@ ngx_http_auth_digest_verify_hash(ngx_http_request_t *r,
       return NGX_DECLINED;
     }
   }
+#ifdef NGX_HTTP_PROXY_CONNECT
+  }
+#endif
 
   //  the hashing scheme:
   //    digest:
